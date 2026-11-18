@@ -11,6 +11,7 @@ import {
   formatPct,
   normalizeSearchText,
 } from '../utils/wineMath';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface WineListViewProps {
   catalog: WineCatalogItem[];
@@ -141,7 +142,7 @@ export const WineListView: React.FC<WineListViewProps> = ({
     });
 
     lines.push('Commandes & réservations : Romain Becker · 06 86 53 19 07');
-    navigator.clipboard.writeText(lines.join('\n'));
+    void copyTextToClipboard(lines.join('\n'));
     setCopiedCard(true);
     setTimeout(() => setCopiedCard(false), 2000);
   };

@@ -535,18 +535,19 @@ export const StockView: React.FC<StockViewProps> = ({
                                 value={
                                   partialQtyDraft[lot.id] ?? lot.qteCommandee
                                 }
-                                onChange={(e) =>
+                                onChange={(e) => {
+                                  const raw = Number(e.target.value);
+                                  const safe = Number.isFinite(raw)
+                                    ? raw
+                                    : lot.qteRecue;
                                   setPartialQtyDraft((prev) => ({
                                     ...prev,
                                     [lot.id]: Math.max(
                                       lot.qteRecue,
-                                      Math.min(
-                                        lot.qteCommandee,
-                                        Number(e.target.value)
-                                      )
+                                      Math.min(lot.qteCommandee, safe)
                                     ),
-                                  }))
-                                }
+                                  }));
+                                }}
                                 aria-label="Quantité reçue"
                                 className="w-14 px-2 py-1 text-xs text-right font-mono-num border border-[#D8D6D0] rounded"
                               />

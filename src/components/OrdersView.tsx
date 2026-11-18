@@ -545,12 +545,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     type="number"
                     min={1}
                     value={editingOrder.qte}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingOrder({
                         ...editingOrder,
-                        qte: Math.max(1, Number(e.target.value)),
-                      })
-                    }
+                        qte: Number.isFinite(raw) ? Math.max(1, raw) : 1,
+                      });
+                    }}
                     className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>
@@ -563,12 +564,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     step="0.5"
                     min={0}
                     value={editingOrder.prixUnitaireTTC}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingOrder({
                         ...editingOrder,
-                        prixUnitaireTTC: Math.max(0, Number(e.target.value)),
-                      })
-                    }
+                        prixUnitaireTTC: Number.isFinite(raw) ? Math.max(0, raw) : 0,
+                      });
+                    }}
                     className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>

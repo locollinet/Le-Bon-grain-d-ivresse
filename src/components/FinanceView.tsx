@@ -240,7 +240,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 max="10"
                 value={settings.fraisLogistiqueAmont}
                 onChange={(e) => {
-                  const amont = Math.max(0, Number(e.target.value));
+                  const raw = Number(e.target.value);
+                  const amont = Number.isFinite(raw) ? Math.max(0, raw) : 0;
                   onUpdateSettings({
                     ...settings,
                     fraisLogistiqueAmont: amont,
@@ -260,7 +261,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
                 max="15"
                 value={settings.fraisLogistiqueAval}
                 onChange={(e) => {
-                  const aval = Math.max(0, Number(e.target.value));
+                  const raw = Number(e.target.value);
+                  const aval = Number.isFinite(raw) ? Math.max(0, raw) : 0;
                   onUpdateSettings({
                     ...settings,
                     fraisLogistiqueAval: aval,

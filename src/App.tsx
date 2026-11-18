@@ -42,6 +42,7 @@ import {
   normalizeSearchText,
   resolveCustomerKey,
 } from './utils/wineMath';
+import { copyTextToClipboard } from './utils/clipboard';
 import { DashboardView } from './components/DashboardView';
 import { StockView, type StockFilter } from './components/StockView';
 import { OrdersView } from './components/OrdersView';
@@ -193,23 +194,43 @@ export default function App() {
 
   // Persist to localStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.catalog, JSON.stringify(catalog));
+    try {
+      localStorage.setItem(STORAGE_KEYS.catalog, JSON.stringify(catalog));
+    } catch {
+      // ignore storage quota / iframe restrictions
+    }
   }, [catalog]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.lots, JSON.stringify(lots));
+    try {
+      localStorage.setItem(STORAGE_KEYS.lots, JSON.stringify(lots));
+    } catch {
+      // ignore storage quota / iframe restrictions
+    }
   }, [lots]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.orders, JSON.stringify(orders));
+    try {
+      localStorage.setItem(STORAGE_KEYS.orders, JSON.stringify(orders));
+    } catch {
+      // ignore storage quota / iframe restrictions
+    }
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.campaigns, JSON.stringify(campaigns));
+    try {
+      localStorage.setItem(STORAGE_KEYS.campaigns, JSON.stringify(campaigns));
+    } catch {
+      // ignore storage quota / iframe restrictions
+    }
   }, [campaigns]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+    try {
+      localStorage.setItem(STORAGE_KEYS.settings, JSON.stringify(settings));
+    } catch {
+      // ignore storage quota / iframe restrictions
+    }
   }, [settings]);
 
   const stockRows = useMemo(
@@ -612,13 +633,7 @@ export default function App() {
         break;
       }
       case 'copy_text': {
-        try {
-          if (navigator.clipboard?.writeText) {
-            void navigator.clipboard.writeText(action.text);
-          }
-        } catch {
-          // ignore clipboard permissions
-        }
+        void copyTextToClipboard(action.text);
         notify(`${action.label} copié dans le presse-papiers.`);
         break;
       }

@@ -294,12 +294,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         min="0"
                         value={item.tarifAchatHT}
                         onFocus={(e) => e.target.select()}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
                           onUpdateCatalogItem({
                             ...item,
-                            tarifAchatHT: Math.max(0, Number(e.target.value)),
-                          })
-                        }
+                            tarifAchatHT: Number.isFinite(v) ? Math.max(0, v) : 0,
+                          });
+                        }}
                         className="w-20 px-2 py-1 text-right text-xs font-mono-num bg-[#FAF9F7] border border-[#D8D6D0] rounded focus:outline-none focus:border-[#721C24]"
                       />
                     </td>
@@ -310,12 +311,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         min="0"
                         value={item.prixLbgTTC}
                         onFocus={(e) => e.target.select()}
-                        onChange={(e) =>
+                        onChange={(e) => {
+                          const v = Number(e.target.value);
                           onUpdateCatalogItem({
                             ...item,
-                            prixLbgTTC: Math.max(0, Number(e.target.value)),
-                          })
-                        }
+                            prixLbgTTC: Number.isFinite(v) ? Math.max(0, v) : 0,
+                          });
+                        }}
                         className="w-20 px-2 py-1 text-right text-xs font-mono-num font-semibold bg-white border border-[#D8D6D0] rounded focus:outline-none focus:border-[#721C24]"
                       />
                       <div className="text-[10px] font-mono-num text-[#6B6B66] mt-0.5">
@@ -700,15 +702,16 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     step="0.25"
                     placeholder={`${settings.fraisLogistiqueAmont + settings.fraisLogistiqueAval}`}
                     value={editingItem.fraisLogistiqueOverride ?? ''}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingItem({
                         ...editingItem,
                         fraisLogistiqueOverride:
-                          e.target.value === ''
+                          e.target.value === '' || !Number.isFinite(raw)
                             ? undefined
-                            : Number(e.target.value),
-                      })
-                    }
+                            : raw,
+                      });
+                    }}
                     className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>
@@ -723,12 +726,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     type="number"
                     step="0.05"
                     value={editingItem.tarifAchatHT}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingItem({
                         ...editingItem,
-                        tarifAchatHT: Number(e.target.value),
-                      })
-                    }
+                        tarifAchatHT: Number.isFinite(raw) ? Math.max(0, raw) : 0,
+                      });
+                    }}
                     className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>
@@ -740,12 +744,13 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     type="number"
                     step="0.5"
                     value={editingItem.prixLbgTTC}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingItem({
                         ...editingItem,
-                        prixLbgTTC: Number(e.target.value),
-                      })
-                    }
+                        prixLbgTTC: Number.isFinite(raw) ? Math.max(0, raw) : 0,
+                      });
+                    }}
                     className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>
@@ -757,15 +762,16 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     type="number"
                     step="0.5"
                     value={editingItem.benchTTC ?? ''}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const raw = Number(e.target.value);
                       setEditingItem({
                         ...editingItem,
                         benchTTC:
-                          e.target.value === ''
+                          e.target.value === '' || !Number.isFinite(raw)
                             ? null
-                            : Number(e.target.value),
-                      })
-                    }
+                            : raw,
+                      });
+                    }}
                     className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
                   />
                 </div>

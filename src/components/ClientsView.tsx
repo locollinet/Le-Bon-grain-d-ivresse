@@ -24,6 +24,7 @@ import {
   maskEmail,
   normalizeSearchText,
 } from '../utils/wineMath';
+import { copyTextToClipboard } from '../utils/clipboard';
 
 interface ClientsViewProps {
   orders: OrderLine[];
@@ -128,13 +129,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     lines.push('À très vite,\nRomain — Le Bon Grain d’Ivresse');
 
     const text = lines.join('\n');
-    try {
-      if (navigator.clipboard?.writeText) {
-        void navigator.clipboard.writeText(text);
-      }
-    } catch {
-      // ignore clipboard restrictions
-    }
+    void copyTextToClipboard(text);
     setCopiedSummary(true);
     setTimeout(() => setCopiedSummary(false), 2000);
   };
