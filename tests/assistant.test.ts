@@ -9,6 +9,8 @@ import { setAiClientFactory, type AiClientLike } from '../server/gemini.ts';
 import { MAX_CALLS_PER_QUESTION, resetGuardsForTest } from '../server/guard.ts';
 import {
   DEFAULT_SETTINGS,
+  DEMO_ALL_LOTS,
+  DEMO_EXTRA_LOTS,
   INITIAL_CAMPAIGNS,
   INITIAL_CATALOG,
   INITIAL_LOTS,
@@ -69,6 +71,8 @@ async function withTestServer(
 }
 
 test('Excel economics formulas match user spreadsheet', () => {
+  assert.equal(INITIAL_CATALOG.length, 396);
+
   const tissotDd = INITIAL_CATALOG.find((c) => c.id === 'cat_tissot_dd');
   assert.ok(tissotDd, 'Tissot DD 2024 should exist in seed catalog');
 
@@ -76,6 +80,15 @@ test('Excel economics formulas match user spreadsheet', () => {
   assert.ok(Math.abs(ddEcon.coutTotalHT - 19.1) < 1e-6);
   assert.ok(Math.abs(ddEcon.margeEuro - 0.9) < 1e-6);
   assert.ok(Math.abs(ddEcon.margePct - 4.71204188) < 1e-3);
+
+  // Pattes-Loup 2026 uses historical 3.00 € logistics override: 57 / 1.2 - 37 - 3 = 7.50 € (18.75%)
+  const pattesBeauregard = INITIAL_CATALOG.find(
+    (c) => c.id === 'cat_pattes_beauregard_22'
+  );
+  assert.ok(pattesBeauregard, 'Pattes-Loup Beauregard 2022 should exist');
+  const plEcon = computeBottleEconomics(pattesBeauregard, DEFAULT_SETTINGS);
+  assert.ok(Math.abs(plEcon.margeEuro - 7.5) < 1e-6);
+  assert.ok(Math.abs(plEcon.margePct - 18.75) < 1e-6);
 
   const recommended = computeRecommendedBasePriceTTC(
     tissotDd.tarifAchatHT,
@@ -221,17 +234,46 @@ test('sanitizeForPrivacy strips emails always and hides raw names when anonymize
   assert.equal(serialized.includes('example.com'), false);
 });
 
+test('Strict Excel mode vs Demo lots behavior', () => {
+  // Default lots contain zero fake demo entries
+  assert.equal(INITIAL_LOTS.some((l) => l.origin === 'demo'), false);
+  assert.equal(DEMO_EXTRA_LOTS.every((l) => l.origin === 'demo'), true);
+
+  const strictRows = computeStockSummaries(INITIAL_CATALOG, INITIAL_LOTS, INITIAL_ORDERS);
+  const byId = new Map(strictRows.map((r) => [r.catalog.id, r]));
+
+  // Labet received in Excel Col K has 0 fake surplus & 0 false deficit
+  const labetChalasse = byId.get('cat_labet_chalasse');
+  assert.ok(labetChalasse);
+  assert.equal(labetChalasse.disponibleVente, 0);
+  assert.equal(labetChalasse.physiqueCave, 5);
+
+  // Pattes-Loup Dispos match Tarifs col S
+  assert.equal(byId.get('cat_pattes_vent_dange_20')?.disponibleVente, 20);
+  assert.equal(byId.get('cat_pattes_jouan_19')?.disponibleVente, 24);
+  assert.equal(byId.get('cat_pattes_vent_dange')?.disponibleVente, 5);
+
+  // Tissot awaiting reception shows real order deficit until invoiced or demo enabled
+  assert.ok((byId.get('cat_tissot_sursis')?.disponibleVente ?? 0) < 0);
+
+  // In Demo mode, Tissot orders are covered + Sursis advance + Pataille available
+  const demoRows = computeStockSummaries(INITIAL_CATALOG, DEMO_ALL_LOTS, INITIAL_ORDERS);
+  const demoById = new Map(demoRows.map((r) => [r.catalog.id, r]));
+  assert.ok((demoById.get('cat_tissot_sursis')?.disponibleVente ?? 0) > 0);
+  assert.equal(demoById.get('cat_pataille_marsannay')?.disponibleVente, 12);
+});
+
 test('All 7 assistant tools run deterministically with cards and safety checks', async () => {
   const ctx = buildSeedContext();
   assert.deepEqual(availableTools(ctx), [...ASSISTANT_TOOL_NAMES]);
 
-  // 1. search_catalog_and_stock
+  // 1. search_catalog_and_stock (Bourgogne Dispos Pattes-Loup in strict Excel mode)
   const searchOut = await TOOLS.search_catalog_and_stock.run(ctx, {
-    region: 'Jura',
+    region: 'Bourgogne',
     stockState: 'dispo',
     limit: 5,
   });
-  assert.ok(Array.isArray(searchOut.items));
+  assert.ok(Array.isArray(searchOut.items) && searchOut.items.length > 0);
   assert.ok(TOOLS.search_catalog_and_stock.toCards(searchOut, ctx).length > 0);
 
   // 2. logistics_and_deliveries

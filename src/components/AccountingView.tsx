@@ -303,6 +303,19 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
         </div>
       </div>
 
+      {/* Transparent warning when deduced Excel lots without supplier invoices are present */}
+      {lots.some(
+        (l) => l.origin === 'excel_status_inferred' || l.origin === 'excel_dispos'
+      ) && (
+        <div className="bg-[#FAF9F7] border border-[#E5E4DF] rounded-xl px-4 py-3 text-xs text-[#4A4A45] no-print">
+          <span className="font-semibold text-[#141413]">
+            Note comptable Excel :
+          </span>{' '}
+          les lignes marquées <code className="px-1 py-0.5 bg-white border border-[#E5E4DF] rounded text-[11px]">EXCEL-STATUT-COL-K</code> ou{' '}
+          <code className="px-1 py-0.5 bg-white border border-[#E5E4DF] rounded text-[11px]">EXCEL-DISPOS</code> estiment la TVA déductible à partir des coûts EXW catalogue (en l’absence de factures domaines dans le tableur). Importez vos vraies factures PDF via <strong>Scanner une facture (IA)</strong>.
+        </div>
+      )}
+
       {/* VAT Summary Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 no-print">
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">

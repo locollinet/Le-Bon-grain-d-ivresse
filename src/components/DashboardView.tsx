@@ -24,6 +24,7 @@ import {
   formatEUR,
   formatPct,
 } from '../utils/wineMath';
+import { DataSourceBanner } from './DataSourceBanner';
 
 interface DashboardViewProps {
   catalog: WineCatalogItem[];
@@ -31,6 +32,9 @@ interface DashboardViewProps {
   stockRows: StockSummaryRow[];
   campaigns: SalesCampaign[];
   settings: AppSettings;
+  isDemoMode: boolean;
+  onEnableDemoMode: () => void;
+  onDisableDemoMode: () => void;
   onNavigate: (tab: ActiveTab) => void;
   onOpenCampaignOrders?: (vente: string) => void;
   onOpenImport: () => void;
@@ -50,6 +54,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   stockRows,
   campaigns,
   settings,
+  isDemoMode,
+  onEnableDemoMode,
+  onDisableDemoMode,
   onNavigate,
   onOpenCampaignOrders,
   onOpenImport,
@@ -248,6 +255,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Transparent Excel vs Demo Mode Indicator */}
+      <DataSourceBanner
+        isDemoMode={isDemoMode}
+        onEnableDemoMode={onEnableDemoMode}
+        onDisableDemoMode={onDisableDemoMode}
+        onOpenInvoiceAI={onOpenInvoiceAI}
+        catalogCount={catalog.length}
+        variant="dashboard"
+      />
 
       {/* Quick Daily Workflow Guide (dismissible) */}
       {showGuide && (

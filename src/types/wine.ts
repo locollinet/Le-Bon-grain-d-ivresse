@@ -35,6 +35,11 @@ export interface WineCatalogItem {
 
 export type LotType = 'avance' | 'allocation' | 'cave';
 export type LotStatus = 'commande_payee' | 'en_transit' | 'recu_cave';
+export type LotOrigin =
+  | 'excel_dispos'
+  | 'excel_status_inferred'
+  | 'demo'
+  | 'manual';
 
 export interface SupplierLot {
   id: string;
@@ -48,6 +53,7 @@ export interface SupplierLot {
   shippingHT?: number;
   statutLot: LotStatus;
   referenceFacture: string;
+  origin?: LotOrigin;
   notes?: string;
 }
 

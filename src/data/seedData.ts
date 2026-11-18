@@ -3,6 +3,7 @@ import {
   OrderLine,
   SalesCampaign,
   SupplierLot,
+  WineCatalogItem,
 } from '../types/wine';
 import { INITIAL_CATALOG } from './seedCatalog';
 
@@ -22,166 +23,10 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showcaseShowBenchmark: true,
 };
 
-export const INITIAL_LOTS: SupplierLot[] = [
-  // TISSOT OCTOBRE 2026 : Allocation commandée en attente + caisse Sursis d'avance
-  {
-    id: 'lot_tissot_sursis_alloc',
-    catalogId: 'cat_tissot_sursis',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 24,
-    qteRecue: 0,
-    coutUnitaireHT: 27.3,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-    notes: 'Commande groupée Tissot Octobre — livraison domaine prévue sous peu.',
-  },
-  {
-    id: 'lot_tissot_sursis_avance',
-    catalogId: 'cat_tissot_sursis',
-    dateAchat: '2026-06-15',
-    typeAchat: 'avance',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 27.3,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-TIS-2026-042',
-    notes: 'Caisse achetée en avance cet été pour tampon.',
-  },
-  {
-    id: 'lot_tissot_patchwork',
-    catalogId: 'cat_tissot_patchwork',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 18,
-    qteRecue: 0,
-    coutUnitaireHT: 14.3,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_dd',
-    catalogId: 'cat_tissot_dd',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 12,
-    qteRecue: 0,
-    coutUnitaireHT: 14.6,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_curon',
-    catalogId: 'cat_tissot_curon',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 76.2,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_vasee',
-    catalogId: 'cat_tissot_vasee',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 55.2,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_mailloche',
-    catalogId: 'cat_tissot_mailloche',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 56.9,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_cremants',
-    catalogId: 'cat_tissot_cremant_bdn',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 18.1,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_cremant_ind',
-    catalogId: 'cat_tissot_cremant_indigene',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 18.1,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_chalon_18',
-    catalogId: 'cat_tissot_chalon_18',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 62.4,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_chalon_11',
-    catalogId: 'cat_tissot_chalon_11',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 3,
-    qteRecue: 0,
-    coutUnitaireHT: 210.0,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_amants',
-    catalogId: 'cat_tissot_amants',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 30.5,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_bruyeres',
-    catalogId: 'cat_tissot_bruyeres',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 55.2,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-  {
-    id: 'lot_tissot_barberon',
-    catalogId: 'cat_tissot_barberon',
-    dateAchat: '2026-10-10',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 0,
-    coutUnitaireHT: 30.0,
-    statutLot: 'commande_payee',
-    referenceFacture: 'FAC-TIS-2026-104',
-  },
-
-  // PATTES-LOUP : Reçu en cave LBG + Dispos tableur (20/9/18/24/6/6)
+/**
+ * 1. Quantités Dispos explicitement présentes dans Suivi_des_ventes_LBG.xlsx (onglet Tarifs, colonne S).
+ */
+export const EXCEL_DISPOS_LOTS: SupplierLot[] = [
   {
     id: 'lot_pattes_vent_20',
     catalogId: 'cat_pattes_vent_dange_20',
@@ -191,8 +36,9 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 20,
     coutUnitaireHT: 18.5,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2024-12',
-    notes: 'Stock cave issu du tableur Dispos (20 btl).',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (20 btl).',
   },
   {
     id: 'lot_pattes_vent_21',
@@ -203,18 +49,22 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 9,
     coutUnitaireHT: 19.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2024-12',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (9 btl).',
   },
   {
     id: 'lot_pattes_vent_22',
     catalogId: 'cat_pattes_vent_dange',
-    dateAchat: '2026-09-25',
-    typeAchat: 'allocation',
+    dateAchat: '2024-12-10',
+    typeAchat: 'cave',
     qteCommandee: 18,
     qteRecue: 18,
     coutUnitaireHT: 19.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2026-88',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (18 btl, dont 13 affectées à Pattes-Loup 2026).',
   },
   {
     id: 'lot_pattes_jouan_19',
@@ -225,8 +75,9 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 24,
     coutUnitaireHT: 36.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2024-12',
-    notes: 'Stock cave issu du tableur Dispos (24 btl).',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (24 btl).',
   },
   {
     id: 'lot_pattes_beauregard_20',
@@ -237,218 +88,202 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 6,
     coutUnitaireHT: 37.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2024-12',
-  },
-  {
-    id: 'lot_pattes_beauregard_21',
-    catalogId: 'cat_pattes_beauregard_21',
-    dateAchat: '2026-09-25',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 37.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2026-88',
-  },
-  {
-    id: 'lot_pattes_beauregard_22',
-    catalogId: 'cat_pattes_beauregard_22',
-    dateAchat: '2026-09-25',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 37.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2026-88',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (6 btl).',
   },
   {
     id: 'lot_pattes_butteaux',
     catalogId: 'cat_pattes_butteaux_20',
-    dateAchat: '2026-09-25',
-    typeAchat: 'allocation',
+    dateAchat: '2024-12-10',
+    typeAchat: 'cave',
     qteCommandee: 6,
     qteRecue: 6,
     coutUnitaireHT: 37.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PL-2026-88',
+    referenceFacture: 'EXCEL-DISPOS',
+    origin: 'excel_dispos',
+    notes: 'Stock cave issu de la colonne Dispos du tableur Excel (6 btl, dont 4 affectées à Pattes-Loup 2024).',
   },
+];
 
-  // LABET : Reçu en cave LBG (avec 2 bouteilles annulées de Teguig disponibles en cave)
+/**
+ * 2. Scénario Démo optionnel (activable en 1 clic) : illustre des achats Tissot en attente,
+ *    des caisses d'avance (Sursis, Pataille, Belargus) et un lot en transit (Deiss).
+ */
+export const DEMO_EXTRA_LOTS: SupplierLot[] = [
   {
-    id: 'lot_labet_chalasse',
-    catalogId: 'cat_labet_chalasse',
-    dateAchat: '2026-09-07',
+    id: 'lot_demo_tissot_sursis_alloc',
+    catalogId: 'cat_tissot_sursis',
+    dateAchat: '2026-10-10',
     typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 24.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-LAB-2026-19',
-    notes: '1 btl libérée suite annulation commande #190823815',
+    qteCommandee: 24,
+    qteRecue: 0,
+    coutUnitaireHT: 27.3,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+    notes: '[Démo] Commande groupée Tissot Octobre — livraison domaine attendue.',
   },
   {
-    id: 'lot_labet_champs',
-    catalogId: 'cat_labet_champs_rouges',
-    dateAchat: '2026-09-07',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 23.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-LAB-2026-19',
-  },
-  {
-    id: 'lot_labet_elevage',
-    catalogId: 'cat_labet_elevage_long',
-    dateAchat: '2026-09-07',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 30.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-LAB-2026-19',
-    notes: '1 btl libérée suite annulation commande #190824073',
-  },
-
-  // GEORGES VERNAY : Reçu & remis aux clients
-  {
-    id: 'lot_vernay_terrasses',
-    catalogId: 'cat_vernay_terrasses',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 18,
-    qteRecue: 18,
-    coutUnitaireHT: 36.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_chaillees_20',
-    catalogId: 'cat_vernay_chaillees_20',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 60.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_chaillees_24',
-    catalogId: 'cat_vernay_chaillees_24',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 53.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_vernon',
-    catalogId: 'cat_vernay_vernon',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 75.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_blonde',
-    catalogId: 'cat_vernay_blonde',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 18,
-    qteRecue: 18,
-    coutUnitaireHT: 41.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_maison_rouge',
-    catalogId: 'cat_vernay_maison_rouge',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 3,
-    qteRecue: 3,
-    coutUnitaireHT: 76.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_damne',
-    catalogId: 'cat_vernay_damne_brune',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 40.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-  {
-    id: 'lot_vernay_terres',
-    catalogId: 'cat_vernay_terres_encre',
-    dateAchat: '2026-07-20',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 25.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GV-2026-301',
-  },
-
-  // CHAMPAGNE GEOFFROY (Juillet 2026)
-  {
-    id: 'lot_geoffroy_coll',
-    catalogId: 'cat_geoffroy_collinardins',
-    dateAchat: '2026-07-07',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 59.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GEO-2026-11',
-  },
-  {
-    id: 'lot_geoffroy_tiers',
-    catalogId: 'cat_geoffroy_tiersaudes',
-    dateAchat: '2026-07-07',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 51.0,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GEO-2026-11',
-  },
-  {
-    id: 'lot_geoffroy_purete',
-    catalogId: 'cat_geoffroy_purete',
-    dateAchat: '2026-07-07',
-    typeAchat: 'allocation',
-    qteCommandee: 6,
-    qteRecue: 6,
-    coutUnitaireHT: 26.2,
-    statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GEO-2026-11',
-  },
-  {
-    id: 'lot_geoffroy_empreinte',
-    catalogId: 'cat_geoffroy_empreinte',
-    dateAchat: '2026-07-07',
-    typeAchat: 'allocation',
+    id: 'lot_demo_tissot_sursis_avance',
+    catalogId: 'cat_tissot_sursis',
+    dateAchat: '2026-06-15',
+    typeAchat: 'avance',
     qteCommandee: 6,
     qteRecue: 6,
     coutUnitaireHT: 27.3,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-GEO-2026-11',
+    referenceFacture: 'DEMO-TIS-2026-042',
+    origin: 'demo',
+    notes: '[Démo] Caisse achetée en avance cet été pour tampon.',
   },
-
-  // ACHATS EN AVANCE PURS & CAVE
   {
-    id: 'lot_avance_pataille',
+    id: 'lot_demo_tissot_patchwork',
+    catalogId: 'cat_tissot_patchwork',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 18,
+    qteRecue: 0,
+    coutUnitaireHT: 14.3,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_dd',
+    catalogId: 'cat_tissot_dd',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 12,
+    qteRecue: 0,
+    coutUnitaireHT: 14.6,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_curon',
+    catalogId: 'cat_tissot_curon',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 76.2,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_vasee',
+    catalogId: 'cat_tissot_vasee',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 55.2,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_mailloche',
+    catalogId: 'cat_tissot_mailloche',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 56.9,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_cremants',
+    catalogId: 'cat_tissot_cremant_bdn',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 18.1,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_cremant_ind',
+    catalogId: 'cat_tissot_cremant_indigene',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 18.1,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_chalon_18',
+    catalogId: 'cat_tissot_chalon_18',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 62.4,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_chalon_11',
+    catalogId: 'cat_tissot_chalon_11',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 3,
+    qteRecue: 0,
+    coutUnitaireHT: 210.0,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_amants',
+    catalogId: 'cat_tissot_amants',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 30.5,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_bruyeres',
+    catalogId: 'cat_tissot_bruyeres',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 55.2,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_tissot_barberon',
+    catalogId: 'cat_tissot_barberon',
+    dateAchat: '2026-10-10',
+    typeAchat: 'allocation',
+    qteCommandee: 6,
+    qteRecue: 0,
+    coutUnitaireHT: 30.0,
+    statutLot: 'commande_payee',
+    referenceFacture: 'DEMO-TIS-2026-104',
+    origin: 'demo',
+  },
+  {
+    id: 'lot_demo_avance_pataille',
     catalogId: 'cat_pataille_marsannay',
     dateAchat: '2026-04-15',
     typeAchat: 'avance',
@@ -456,11 +291,12 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 12,
     coutUnitaireHT: 21.3,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-PAT-2026-04',
-    notes: '2 caisses achetées en avance au domaine — stock cave prêt pour vente privée.',
+    referenceFacture: 'DEMO-PAT-2026-04',
+    origin: 'demo',
+    notes: '[Démo] 2 caisses achetées en avance au domaine — prêtes pour vente privée.',
   },
   {
-    id: 'lot_avance_deiss',
+    id: 'lot_demo_avance_deiss',
     catalogId: 'cat_deiss_schoenenbourg_08',
     dateAchat: '2026-10-28',
     typeAchat: 'avance',
@@ -468,11 +304,12 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 0,
     coutUnitaireHT: 107.0,
     statutLot: 'en_transit',
-    referenceFacture: 'FAC-DEISS-2026-92',
-    notes: 'Réservation payée d’avance — en cours d’acheminement Alsace.',
+    referenceFacture: 'DEMO-DEISS-2026-92',
+    origin: 'demo',
+    notes: '[Démo] Allocation payée d’avance — en transit Alsace.',
   },
   {
-    id: 'lot_avance_belargus',
+    id: 'lot_demo_avance_belargus',
     catalogId: 'cat_belargus_quarts_21',
     dateAchat: '2026-05-12',
     typeAchat: 'cave',
@@ -480,8 +317,9 @@ export const INITIAL_LOTS: SupplierLot[] = [
     qteRecue: 6,
     coutUnitaireHT: 60.0,
     statutLot: 'recu_cave',
-    referenceFacture: 'FAC-BEL-2026-18',
-    notes: 'Stock cave conservé pour dégustation / vente fin d’année.',
+    referenceFacture: 'DEMO-BEL-2026-18',
+    origin: 'demo',
+    notes: '[Démo] Stock cave conservé pour dégustation / vente fin d’année.',
   },
 ];
 
@@ -1628,7 +1466,101 @@ export const INITIAL_ORDERS: OrderLine[] = [
   },
 ];
 
+/**
+ * Construit les lots strictement nécessaires pour équilibrer les bouteilles déjà marquées
+ * "Reçu par LBG" ou "Remis au client" dans l'Excel (zéro surplus fictif ajouté).
+ */
+function buildExcelStatusLots(
+  orders: OrderLine[],
+  catalog: WineCatalogItem[],
+  disposLots: SupplierLot[]
+): SupplierLot[] {
+  const catalogMap = new Map(catalog.map((c) => [c.id, c]));
+  const coveredByDispos = new Map<string, number>();
+  for (const lot of disposLots) {
+    coveredByDispos.set(
+      lot.catalogId,
+      (coveredByDispos.get(lot.catalogId) ?? 0) + lot.qteCommandee
+    );
+  }
+
+  const receivedDemand = new Map<
+    string,
+    { qty: number; hasReady: boolean; earliestDate: string }
+  >();
+  for (const o of orders) {
+    if (o.statut !== 'recu_lbg' && o.statut !== 'remis_client') continue;
+    const prev = receivedDemand.get(o.catalogId);
+    const hasReady = (prev?.hasReady ?? false) || o.statut === 'recu_lbg';
+    const earliestDate =
+      prev && prev.earliestDate < o.date ? prev.earliestDate : o.date;
+    receivedDemand.set(o.catalogId, {
+      qty: (prev?.qty ?? 0) + o.qte,
+      hasReady,
+      earliestDate,
+    });
+  }
+
+  const derived: SupplierLot[] = [];
+  for (const [catalogId, info] of receivedDemand.entries()) {
+    const alreadyCovered = coveredByDispos.get(catalogId) ?? 0;
+    const missing = Math.max(0, info.qty - alreadyCovered);
+    if (missing <= 0) continue;
+
+    const cat = catalogMap.get(catalogId);
+    derived.push({
+      id: `lot_xl_status_${catalogId}`,
+      catalogId,
+      dateAchat: info.earliestDate,
+      typeAchat: 'allocation',
+      qteCommandee: missing,
+      qteRecue: missing,
+      coutUnitaireHT: cat?.tarifAchatHT ?? 0,
+      statutLot: 'recu_cave',
+      referenceFacture: 'EXCEL-STATUT-COL-K',
+      origin: 'excel_status_inferred',
+      notes: info.hasReady
+        ? 'Déduit du statut Excel « Reçu par LBG » (facture domaine non saisie).'
+        : 'Déduit des ventes clôturées Excel (col. K vide en historique, sans facture).',
+    });
+  }
+
+  return derived;
+}
+
+export const EXCEL_STATUS_LOTS: SupplierLot[] = buildExcelStatusLots(
+  INITIAL_ORDERS,
+  INITIAL_CATALOG,
+  EXCEL_DISPOS_LOTS
+);
+
+/**
+ * Jeu de lots initial par défaut : 100 % aligné sur Suivi_des_ventes_LBG.xlsx
+ * (6 lignes Dispos + couverture stricte des commandes déjà marquées Reçu/Remis).
+ * Tissot Octobre 2026 (En attente domaine) reste volontairement sans lot fictif tant que
+ * la facture n'est pas importée ou que le mode Démo n'est pas activé.
+ */
+export const INITIAL_LOTS: SupplierLot[] = [
+  ...EXCEL_DISPOS_LOTS,
+  ...EXCEL_STATUS_LOTS,
+];
+
+export const DEMO_ALL_LOTS: SupplierLot[] = [
+  ...INITIAL_LOTS,
+  ...DEMO_EXTRA_LOTS,
+];
+
 export const INITIAL_CAMPAIGNS: SalesCampaign[] = [
+  {
+    id: 'camp_geoffroy',
+    nom: 'Champagne Geoffroy',
+    domaine: 'Champagne Geoffroy',
+    dateOuverture: '2026-07-06',
+    canal: 'Club',
+    contact: 'Romain',
+    statut: 'Livrée',
+    notes: 'Historique Excel juillet 2026 (col. K vide classée remise au client).',
+  },
   {
     id: 'camp_vernay',
     nom: 'Domaine Georges Vernay',
@@ -1637,7 +1569,7 @@ export const INITIAL_CAMPAIGNS: SalesCampaign[] = [
     canal: 'Club',
     contact: 'Romain',
     statut: 'Livrée',
-    notes: "Terminée & remise aux clients. Surveiller Terres d'encre (-0,33 €/btl).",
+    notes: "Historique Excel juillet 2026 (col. K vide classée remise). Surveiller Terres d'encre (-0,33 €/btl).",
   },
   {
     id: 'camp_labet',
@@ -1647,7 +1579,7 @@ export const INITIAL_CAMPAIGNS: SalesCampaign[] = [
     canal: 'Club',
     contact: 'Romain',
     statut: 'Clôturée',
-    notes: 'Reçu en cave LBG. 2 bouteilles libérées en stock suite annulation.',
+    notes: 'Statut Excel : Reçu par LBG. Remises clients à suivre.',
   },
   {
     id: 'camp_pattes',

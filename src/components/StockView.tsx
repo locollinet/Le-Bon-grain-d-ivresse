@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { StockSummaryRow, SupplierLot, WineCatalogItem } from '../types/wine';
 import { formatDateFR, formatEUR, normalizeSearchText } from '../utils/wineMath';
+import { DataSourceBanner } from './DataSourceBanner';
 
 export type StockFilter = 'all' | 'avance' | 'dispo' | 'attente' | 'deficit';
 
@@ -16,6 +17,10 @@ interface StockViewProps {
   stockRows: StockSummaryRow[];
   lots: SupplierLot[];
   catalog: WineCatalogItem[];
+  isDemoMode: boolean;
+  onEnableDemoMode: () => void;
+  onDisableDemoMode: () => void;
+  onOpenInvoiceAI?: () => void;
   initialFocus?: {
     search?: string;
     filter?: StockFilter;
@@ -30,10 +35,36 @@ interface StockViewProps {
   onDeleteLot?: (lotId: string) => void;
 }
 
+const LOT_ORIGIN_BADGES: Record<
+  NonNullable<SupplierLot['origin']>,
+  { label: string; className: string }
+> = {
+  excel_dispos: {
+    label: 'Tableur Dispos (col. S)',
+    className: 'bg-[#15803D]/10 text-[#15803D] border-[#15803D]/25',
+  },
+  excel_status_inferred: {
+    label: 'Déduit col. K (sans facture)',
+    className: 'bg-[#B45309]/10 text-[#B45309] border-[#B45309]/25',
+  },
+  demo: {
+    label: 'Scénario Démo',
+    className: 'bg-[#721C24]/10 text-[#721C24] border-[#721C24]/25',
+  },
+  manual: {
+    label: 'Saisie / Facture IA',
+    className: 'bg-[#F6F6F4] text-[#4A4A45] border-[#D8D6D0]',
+  },
+};
+
 export const StockView: React.FC<StockViewProps> = ({
   stockRows,
   lots,
   catalog,
+  isDemoMode,
+  onEnableDemoMode,
+  onDisableDemoMode,
+  onOpenInvoiceAI,
   initialFocus,
   onOpenNewLot,
   onReceiveLot,
@@ -123,6 +154,15 @@ export const StockView: React.FC<StockViewProps> = ({
           <span>Nouvel achat / mise en cave</span>
         </button>
       </div>
+
+      {/* Transparent Excel vs Demo Mode Indicator */}
+      <DataSourceBanner
+        isDemoMode={isDemoMode}
+        onEnableDemoMode={onEnableDemoMode}
+        onDisableDemoMode={onDisableDemoMode}
+        onOpenInvoiceAI={onOpenInvoiceAI}
+        variant="stock"
+      />
 
       {/* 4 Stock KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
@@ -382,9 +422,20 @@ export const StockView: React.FC<StockViewProps> = ({
                         <div className="font-medium text-[#141413]">
                           {cat?.cuvee ?? 'Cuvée inconnue'}
                         </div>
-                        <div className="text-xs text-[#6B6B66]">
-                          {cat?.domaine}
-                          {lot.notes ? ` · ${lot.notes}` : ''}
+                        <div className="text-xs text-[#6B6B66] flex flex-wrap items-center gap-1.5 mt-0.5">
+                          <span>{cat?.domaine}</span>
+                          {(() => {
+                            const originInfo =
+                              LOT_ORIGIN_BADGES[lot.origin ?? 'manual'];
+                            return (
+                              <span
+                                className={`inline-block px-1.5 py-0.5 text-[10px] font-medium border rounded ${originInfo.className}`}
+                              >
+                                {originInfo.label}
+                              </span>
+                            );
+                          })()}
+                          {lot.notes && <span>· {lot.notes}</span>}
                         </div>
                       </td>
                       <td className="py-3 px-4 text-xs whitespace-nowrap">

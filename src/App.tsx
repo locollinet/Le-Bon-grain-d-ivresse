@@ -31,6 +31,7 @@ import {
 } from './types/wine';
 import {
   DEFAULT_SETTINGS,
+  DEMO_EXTRA_LOTS,
   INITIAL_CAMPAIGNS,
   INITIAL_CATALOG,
   INITIAL_LOTS,
@@ -62,11 +63,11 @@ import type {
 } from './modules/assistant/types';
 
 const STORAGE_KEYS = {
-  catalog: 'lbg_catalog_v2',
-  lots: 'lbg_lots_v2',
-  orders: 'lbg_orders_v2',
-  campaigns: 'lbg_campaigns_v2',
-  settings: 'lbg_settings_v2',
+  catalog: 'lbg_catalog_v3',
+  lots: 'lbg_lots_v3',
+  orders: 'lbg_orders_v3',
+  campaigns: 'lbg_campaigns_v3',
+  settings: 'lbg_settings_v3',
 };
 
 function loadStored<T>(key: string, fallback: T): T {
@@ -299,7 +300,7 @@ export default function App() {
   };
 
   const handleAddLot = (lot: SupplierLot) => {
-    setLots((prev) => [lot, ...prev]);
+    setLots((prev) => [{ ...lot, origin: lot.origin ?? 'manual' }, ...prev]);
     const cat = catalog.find((c) => c.id === lot.catalogId);
     notify(
       `Stock mis à jour : +${lot.qteCommandee} btl (${cat?.cuvee ?? 'Cuvée'}).`
@@ -511,7 +512,10 @@ export default function App() {
     if (newCatalogItems.length > 0) {
       setCatalog((prev) => [...newCatalogItems, ...prev]);
     }
-    setLots((prev) => [...newLots, ...prev]);
+    setLots((prev) => [
+      ...newLots.map((l) => ({ ...l, origin: l.origin ?? ('manual' as const) })),
+      ...prev,
+    ]);
     notify(summaryText);
     setActiveTab('stock');
   };
@@ -540,6 +544,27 @@ export default function App() {
     notify(`Facture ${invoiceNumber} émise.`);
   };
 
+  const isDemoMode = useMemo(
+    () => lots.some((l) => l.origin === 'demo'),
+    [lots]
+  );
+
+  const handleEnableDemoMode = () => {
+    setLots((prev) => {
+      const existingIds = new Set(prev.map((l) => l.id));
+      const toAdd = DEMO_EXTRA_LOTS.filter((l) => !existingIds.has(l.id));
+      return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+    });
+    notify(
+      'Scénario Démo activé : factures Tissot, stock d’avance (Sursis, Pataille, Belargus) et transit (Deiss) ajoutés.'
+    );
+  };
+
+  const handleDisableDemoMode = () => {
+    setLots((prev) => prev.filter((l) => l.origin !== 'demo'));
+    notify('Retour au mode strict : seules vos données Excel et saisies manuelles sont affichées.');
+  };
+
   const handleResetDemo = () => {
     setCatalog(INITIAL_CATALOG);
     setLots(INITIAL_LOTS);
@@ -547,7 +572,7 @@ export default function App() {
     setCampaigns(INITIAL_CAMPAIGNS);
     setSettings(DEFAULT_SETTINGS);
     setConfirmResetOpen(false);
-    notify('Données initiales restaurées.');
+    notify('Données exactes de votre Excel restaurées.');
   };
 
   const handleExecuteAssistantAction = (action: AssistantAction) => {
@@ -707,17 +732,36 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="p-4 border-t border-[#E5E4DF] space-y-3">
+        <div className="p-4 border-t border-[#E5E4DF] space-y-2.5">
           <div className="text-xs text-[#6B6B66]">
             <div className="font-medium text-[#141413]">Romain Becker</div>
             <div>Négoce &amp; Allocations</div>
           </div>
           <button
+            type="button"
+            onClick={isDemoMode ? handleDisableDemoMode : handleEnableDemoMode}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 text-[11px] font-medium rounded-md border transition-colors ${
+              isDemoMode
+                ? 'bg-[#721C24]/10 text-[#721C24] border-[#721C24]/30 hover:bg-[#721C24]/15'
+                : 'bg-[#FAF9F7] text-[#15803D] border-[#E5E4DF] hover:bg-[#F3F1EC]'
+            }`}
+            title={
+              isDemoMode
+                ? 'Cliquer pour retirer les lots démo et revenir aux données Excel strictes'
+                : 'Cliquer pour charger le scénario démo (+ achats & avances)'
+            }
+          >
+            <span>{isDemoMode ? 'Mode Démo actif' : 'Données Excel strictes'}</span>
+            <span className="underline">
+              {isDemoMode ? 'Excel' : '+ Démo'}
+            </span>
+          </button>
+          <button
             onClick={() => setConfirmResetOpen(true)}
             className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#6B6B66] hover:text-[#141413] bg-[#F6F6F4] hover:bg-[#ECEAE4] rounded-md transition-colors"
           >
             <RotateCcw className="w-3.5 h-3.5" />
-            <span>Réinitialiser données</span>
+            <span>Réinitialiser Excel</span>
           </button>
         </div>
       </aside>
@@ -808,6 +852,9 @@ export default function App() {
               stockRows={stockRows}
               campaigns={campaigns}
               settings={settings}
+              isDemoMode={isDemoMode}
+              onEnableDemoMode={handleEnableDemoMode}
+              onDisableDemoMode={handleDisableDemoMode}
               onNavigate={setActiveTab}
               onOpenCampaignOrders={(vente) => {
                 setActiveTab('orders');
@@ -834,6 +881,10 @@ export default function App() {
               stockRows={stockRows}
               lots={lots}
               catalog={catalog}
+              isDemoMode={isDemoMode}
+              onEnableDemoMode={handleEnableDemoMode}
+              onDisableDemoMode={handleDisableDemoMode}
+              onOpenInvoiceAI={() => setInvoiceAIModalOpen(true)}
               initialFocus={tabFocus.stock}
               onOpenNewLot={(catId) => {
                 setSupplierLotPrefill(null);

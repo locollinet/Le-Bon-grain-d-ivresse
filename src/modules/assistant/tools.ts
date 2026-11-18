@@ -439,6 +439,7 @@ const logisticsAndDeliveriesTool: AssistantTool<LogisticsInput> = {
           qteRecue: l.qteRecue,
           restantARecevoir: l.qteCommandee - l.qteRecue,
           statutLot: l.statutLot,
+          origin: l.origin ?? 'manual',
         };
       });
 
@@ -637,8 +638,11 @@ const stockAlertsAndAdvancesTool: AssistantTool<StockAlertsInput> = {
       0
     );
 
+    const isDemoMode = ctx.lots.some((l) => l.origin === 'demo');
+
     return {
       kind,
+      dataMode: isDemoMode ? 'demo' : 'excel_strict',
       totals: {
         deficitCuveesCount: deficitsAll.length,
         totalDeficitBottles,

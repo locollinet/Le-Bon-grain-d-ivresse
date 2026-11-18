@@ -182,6 +182,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             Centralisez vos imports HelloAsso et ventes directes, puis faites
             avancer les statuts en un clic.
           </p>
+          <p className="text-xs text-[#9E9B93] mt-0.5">
+            Règle Excel : les ventes historiques sans colonne K (Vernay, Geoffroy juil. 2026) sont classées en « Remis au client » ; tout import HelloAsso brut démarre en « En attente domaine ».
+          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">

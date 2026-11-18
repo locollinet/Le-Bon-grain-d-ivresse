@@ -1,12 +1,12 @@
 [
   {
-    "id": "g01_jura_available",
+    "id": "g01_bourgogne_dispos_available",
     "category": "stock",
     "activeTab": "stock",
     "anonymizeClients": false,
-    "prompt": "Quelles cuvées du Jura avons-nous encore disponibles à vendre ?",
+    "prompt": "Quelles cuvées de Bourgogne ou Chablis avons-nous encore disponibles en cave à vendre ?",
     "expectedTools": ["search_catalog_and_stock"],
-    "expectedToolArgs": { "region": "Jura", "stockState": "dispo" }
+    "expectedToolArgs": { "region": "Bourgogne", "stockState": "dispo" }
   },
   {
     "id": "g02_best_bench_discounts",
