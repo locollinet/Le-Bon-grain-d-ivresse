@@ -79,8 +79,7 @@ export function assistantModelList(): string[] {
   const raw = [
     process.env.GEMINI_ASSISTANT_MODEL,
     'gemini-4-hydrogen',
-    'gemini-3.8-flash',
-    'gemini-3.5-flash-lite',
+    'gemini-3.1-flash-lite',
   ].filter((m): m is string => Boolean(m && m.trim()));
 
   const deduped = Array.from(new Set(raw.map((m) => m.trim())));

@@ -94,6 +94,7 @@ test('Excel economics formulas match user spreadsheet', () => {
     {
       id: 'ord_test_perso',
       date: '2026-10-15',
+      refCommande: 'TEST-PERSO-1',
       vente: 'Tissot Octobre 2026',
       nomClient: 'Becker',
       prenomClient: 'Romain',
@@ -121,7 +122,7 @@ test('HelloAsso parser handles raw comma CSV, promos, cancellations and duplicat
   assert.equal(rows[5].mappedStatus, 'annule');
 
   // Group without skipping duplicates first, then verify duplicate ref exclusion
-  const grouped = groupParsedRowsToOrderLines(rows, INITIAL_LOTS);
+  const grouped = groupParsedRowsToOrderLines(rows, 'Vente Novembre 2026');
   // First command 196410220 has 2x Marsannay + 1x Sursis, 2nd has 1x Marsannay + 1x Quarts 37.5cl, 3rd Annulé
   const validated = grouped.filter((g) => g.statut !== 'annule');
   assert.equal(validated.length, 4);
@@ -148,6 +149,7 @@ test('Customer merge resolves email-less direct orders into main email profile',
     {
       id: 'o1',
       date: '2026-10-01',
+      refCommande: 'HA-TEST-1',
       vente: 'Tissot Octobre 2026',
       nomClient: 'Pasquet',
       prenomClient: 'Romain',
@@ -162,6 +164,7 @@ test('Customer merge resolves email-less direct orders into main email profile',
     {
       id: 'o2',
       date: '2026-10-05',
+      refCommande: 'DIR-TEST-2',
       vente: 'Tissot Octobre 2026',
       nomClient: 'Pasquet',
       prenomClient: 'Romain',
@@ -175,9 +178,10 @@ test('Customer merge resolves email-less direct orders into main email profile',
     },
   ];
 
+  const catalogMap = new Map(INITIAL_CATALOG.map((c) => [c.id, c]));
   const summaries = computeCustomerSummaries(
     syntheticOrders,
-    INITIAL_CATALOG,
+    catalogMap,
     DEFAULT_SETTINGS
   );
   assert.equal(summaries.length, 1);

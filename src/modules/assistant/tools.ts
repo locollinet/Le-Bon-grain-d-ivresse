@@ -75,9 +75,27 @@ const PRIVACY_RAW_NAME_KEYS = new Set([
   'nomClient',
   'prenomClient',
   'rawClientName',
+  'nom',
+  'prenom',
+  'clientName',
+]);
+
+const PRIVACY_DISPLAY_NAME_KEYS = new Set([
+  'displayName',
+  'clientDisplayName',
 ]);
 
 const PRIVACY_CUSTOMER_KEY_FIELDS = new Set(['key', 'clientKey']);
+
+function maskDisplayNameValue(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.includes('***')) return trimmed;
+  const parts = trimmed.split(/\s+/);
+  if (parts.length === 1) {
+    return maskClientName('', parts[0], true);
+  }
+  return maskClientName(parts[0], parts.slice(1).join(' '), true);
+}
 
 /**
  * Purge / masque récursivement toute donnée personnelle client quand anonymizeClients === true,
@@ -108,6 +126,14 @@ export function sanitizeForPrivacy<T>(
       continue;
     }
     if (anonymizeClients && PRIVACY_RAW_NAME_KEYS.has(k)) {
+      continue;
+    }
+    if (anonymizeClients && k === 'whatsappDraft') {
+      out[k] = null;
+      continue;
+    }
+    if (anonymizeClients && PRIVACY_DISPLAY_NAME_KEYS.has(k) && typeof v === 'string') {
+      out[k] = maskDisplayNameValue(v);
       continue;
     }
     out[k] = sanitizeForPrivacy(v, anonymizeClients, options);

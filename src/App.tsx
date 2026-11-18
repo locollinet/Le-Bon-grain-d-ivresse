@@ -233,6 +233,35 @@ export default function App() {
     return set;
   }, [lots, orders]);
 
+  const tabFocus = useMemo(
+    () => ({
+      stock:
+        viewFocus?.tab === 'stock'
+          ? {
+              search: viewFocus.search,
+              filter: viewFocus.filter as StockFilter | undefined,
+            }
+          : null,
+      orders:
+        viewFocus?.tab === 'orders'
+          ? { search: viewFocus.search, vente: viewFocus.vente }
+          : null,
+      finance:
+        viewFocus?.tab === 'finance' ? { vente: viewFocus.vente } : null,
+      accounting:
+        viewFocus?.tab === 'accounting'
+          ? { periodMonth: viewFocus.periodMonth }
+          : null,
+      clients:
+        viewFocus?.tab === 'clients'
+          ? { clientKey: viewFocus.clientKey, search: viewFocus.search }
+          : null,
+      catalog:
+        viewFocus?.tab === 'catalog' ? { search: viewFocus.search } : null,
+    }),
+    [viewFocus]
+  );
+
   // Handlers
   const handleImportOrders = (
     newOrders: OrderLine[],
@@ -805,14 +834,7 @@ export default function App() {
               stockRows={stockRows}
               lots={lots}
               catalog={catalog}
-              initialFocus={
-                viewFocus?.tab === 'stock'
-                  ? {
-                      search: viewFocus.search,
-                      filter: viewFocus.filter as StockFilter | undefined,
-                    }
-                  : null
-              }
+              initialFocus={tabFocus.stock}
               onOpenNewLot={(catId) => {
                 setSupplierLotPrefill(null);
                 setPreselectedLotCatalogId(catId);
@@ -828,11 +850,7 @@ export default function App() {
               orders={orders}
               catalog={catalog}
               settings={settings}
-              initialFocus={
-                viewFocus?.tab === 'orders'
-                  ? { search: viewFocus.search, vente: viewFocus.vente }
-                  : null
-              }
+              initialFocus={tabFocus.orders}
               onUpdateOrderStatus={handleUpdateOrderStatus}
               onUpdateOrder={handleUpdateOrder}
               onBulkUpdateCampaignStatus={handleBulkUpdateCampaignStatus}
@@ -850,11 +868,7 @@ export default function App() {
               catalog={catalog}
               orders={orders}
               settings={settings}
-              initialFocus={
-                viewFocus?.tab === 'finance'
-                  ? { vente: viewFocus.vente }
-                  : null
-              }
+              initialFocus={tabFocus.finance}
               onUpdateSettings={setSettings}
             />
           )}
@@ -865,11 +879,7 @@ export default function App() {
               lots={lots}
               orders={orders}
               settings={settings}
-              initialFocus={
-                viewFocus?.tab === 'accounting'
-                  ? { periodMonth: viewFocus.periodMonth }
-                  : null
-              }
+              initialFocus={tabFocus.accounting}
               onAssignInvoiceNumbers={handleAssignInvoiceNumbers}
               onOpenInvoiceAI={() => setInvoiceAIModalOpen(true)}
             />
@@ -880,11 +890,7 @@ export default function App() {
               orders={orders}
               catalog={catalog}
               settings={settings}
-              initialFocus={
-                viewFocus?.tab === 'clients'
-                  ? { clientKey: viewFocus.clientKey, search: viewFocus.search }
-                  : null
-              }
+              initialFocus={tabFocus.clients}
               onUpdateSettings={setSettings}
               onMarkClientReadyDelivered={handleMarkClientReadyDelivered}
             />
@@ -894,11 +900,7 @@ export default function App() {
             <CatalogView
               catalog={catalog}
               settings={settings}
-              initialFocus={
-                viewFocus?.tab === 'catalog'
-                  ? { search: viewFocus.search }
-                  : null
-              }
+              initialFocus={tabFocus.catalog}
               prefillNew={catalogPrefillNew}
               onClearPrefillNew={() => setCatalogPrefillNew(null)}
               onUpdateCatalogItem={handleUpdateCatalogItem}
