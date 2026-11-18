@@ -138,11 +138,11 @@ export const StockView: React.FC<StockViewProps> = ({
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-semibold text-[#141413] tracking-tight">
-            Stock, cave &amp; achats en avance
+            Stock, dispos &amp; achats domaines
           </h1>
           <p className="text-sm text-[#6B6B66] mt-1">
-            Distinguez en temps réel ce qui est physiquement en cave, acheté en
-            avance, réservé par vos clients et libre à la vente.
+            Suivez vos bouteilles disponibles (Dispos), achats d’avance et besoins à
+            commander — même sans stockage permanent entre domaine et client.
           </p>
         </div>
 

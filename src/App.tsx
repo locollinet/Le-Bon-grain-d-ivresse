@@ -93,7 +93,7 @@ const NAV_GROUPS: {
     items: [
       { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard },
       { id: 'orders', label: 'Commandes', icon: ClipboardList },
-      { id: 'stock', label: 'Stock & Cave', icon: Warehouse },
+      { id: 'stock', label: 'Stock & Achats', icon: Warehouse },
     ],
   },
   {

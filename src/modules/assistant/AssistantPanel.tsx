@@ -55,7 +55,7 @@ const TONE_BADGE_CLASS: Record<MetricTone, string> = {
 
 const TAB_NAMES: Record<ActiveTab, string> = {
   dashboard: 'Tableau de bord',
-  stock: 'Stock & Cave',
+  stock: 'Stock & Achats',
   orders: 'Commandes',
   finance: 'Bilans financiers',
   accounting: 'Facturation & TVA',

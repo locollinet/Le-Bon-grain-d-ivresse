@@ -43,6 +43,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   onMarkClientReadyDelivered,
 }) => {
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'ready' | 'waiting'>('all');
   const [selectedClientKey, setSelectedClientKey] = useState<string | null>(
     null
   );
@@ -66,14 +67,21 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   const filteredCustomers = useMemo(() => {
     const q = normalizeSearchText(search);
-    if (!q) return customers;
     return customers.filter((c) => {
+      if (statusFilter === 'ready' && c.bouteillesPretesLBG <= 0) return false;
+      if (statusFilter === 'waiting' && c.bouteillesAttenteDomaine <= 0) return false;
+      if (!q) return true;
       const hay = normalizeSearchText(
         `${c.prenom} ${c.nom} ${c.email} ${c.domainesFavoris.join(' ')}`
       );
       return hay.includes(q);
     });
-  }, [customers, search]);
+  }, [customers, search, statusFilter]);
+
+  const readyClientsCount = useMemo(
+    () => customers.filter((c) => c.bouteillesPretesLBG > 0).length,
+    [customers]
+  );
 
   const selectedCustomer: CustomerSummary | null = useMemo(() => {
     if (selectedClientKey) {
@@ -133,7 +141,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
   const statusText = (s: OrderStatus) => {
     if (s === 'attente_reception') return 'En attente domaine';
-    if (s === 'recu_lbg') return 'Prêt en cave LBG';
+    if (s === 'recu_lbg') return 'Reçu par LBG (prêt)';
     if (s === 'remis_client') return 'Remis';
     return 'Annulé';
   };
@@ -195,10 +203,29 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
         {/* Left: Client Directory Table */}
         <div className="xl:col-span-6 bg-white border border-[#E5E4DF] rounded-xl overflow-hidden no-print">
-          <div className="px-5 py-3.5 border-b border-[#E5E4DF] flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#141413]">
-              Répertoire clients ({filteredCustomers.length})
-            </span>
+          <div className="px-5 py-3.5 border-b border-[#E5E4DF] flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg">
+              {(
+                [
+                  ['all', `Tous (${customers.length})`],
+                  ['ready', `À remettre (${readyClientsCount})`],
+                  ['waiting', 'En attente'],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setStatusFilter(key)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
+                    statusFilter === key
+                      ? 'bg-white text-[#141413] shadow-sm'
+                      : 'text-[#6B6B66] hover:text-[#141413]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <span className="text-xs text-[#6B6B66]">
               Trié par CA total TTC
             </span>

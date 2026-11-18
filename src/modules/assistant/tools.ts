@@ -363,7 +363,7 @@ const searchCatalogAndStockTool: AssistantTool<SearchCatalogInput> = {
           },
         ],
         items: cardItems,
-        actionLabel: 'Ouvrir Stock & Cave',
+        actionLabel: 'Ouvrir Stock & Achats',
         action: {
           type: 'navigate',
           tab: 'stock',

@@ -289,36 +289,57 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               className="text-left p-3 bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#ECEAE4] rounded-lg transition-colors"
             >
               <div className="font-semibold text-[#141413]">
-                1. Importer vos ventes ou factures
+                1. Importer vos ventes HelloAsso
               </div>
               <div className="text-[#6B6B66] mt-0.5">
-                Collez votre export HelloAsso ou analysez une facture domaine par IA.
+                Collez votre export HelloAsso (ou saisissez une vente directe / facture IA).
               </div>
             </button>
             <button
               type="button"
-              onClick={() => onNavigate('stock')}
+              onClick={() => onNavigate('orders')}
               className="text-left p-3 bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#ECEAE4] rounded-lg transition-colors"
             >
               <div className="font-semibold text-[#141413]">
-                2. Réceptionner les cartons en cave
+                2. Suivre les réceptions &amp; livraisons
               </div>
               <div className="text-[#6B6B66] mt-0.5">
-                Un clic sur « Réceptionner » bascule les commandes clients prêtes.
+                Faites avancer vos commandes (En attente → Reçu LBG → Remis), en passage cave ou direct domaine.
               </div>
             </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('clients')}
-              className="text-left p-3 bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#ECEAE4] rounded-lg transition-colors"
-            >
-              <div className="font-semibold text-[#141413]">
-                3. Remettre, facturer &amp; partager la carte
+            <div className="text-left p-3 bg-[#FAF9F7] border border-[#ECEAE4] rounded-lg flex flex-col justify-between gap-2">
+              <div>
+                <div className="font-semibold text-[#141413]">
+                  3. Relances clients, factures &amp; carte
+                </div>
+                <div className="text-[#6B6B66] mt-0.5">
+                  Ouvrez directement l’écran adapté :
+                </div>
               </div>
-              <div className="text-[#6B6B66] mt-0.5">
-                Copiez le récap WhatsApp par client ou publiez la Carte des vins.
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => onNavigate('clients')}
+                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#141413] border border-[#D8D6D0] rounded-md transition-colors"
+                >
+                  Clients &amp; WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('accounting')}
+                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#141413] border border-[#D8D6D0] rounded-md transition-colors"
+                >
+                  Factures &amp; TVA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('winelist')}
+                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#721C24] border border-[#721C24]/30 rounded-md transition-colors"
+                >
+                  Carte des vins
+                </button>
               </div>
-            </button>
+            </div>
           </div>
         </div>
       )}

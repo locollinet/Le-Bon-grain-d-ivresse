@@ -40,7 +40,7 @@ export const HELP_ARTICLES: HelpArticle[] = [
     title: 'Réceptionner un lot fournisseur et basculer les clients',
     keywords: ['reception', 'lot', 'fournisseur', 'recu_lbg', 'attente', 'partiel'],
     summary:
-      'Depuis Stock & Cave > Lots fournisseurs, vous pouvez réceptionner tout ou partie d’un arrivage domaine.',
+      'Depuis Stock & Achats > Lots fournisseurs, vous pouvez réceptionner tout ou partie d’un arrivage domaine.',
     steps: [
       'Cliquez sur « Réceptionner » (ou saisissez la quantité partielle reçue).',
       'L’application attribue les bouteilles reçues aux commandes clients « En attente domaine » par ordre chronologique dans la limite du stock disponible.',
