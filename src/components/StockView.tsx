@@ -73,6 +73,7 @@ export const StockView: React.FC<StockViewProps> = ({
   const [subTab, setSubTab] = useState<'inventory' | 'lots'>('inventory');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<StockFilter>('all');
+  const [showZeroRows, setShowZeroRows] = useState(false);
   const [partialQtyDraft, setPartialQtyDraft] = useState<Record<string, number>>({});
   const [confirmDeleteLotId, setConfirmDeleteLotId] = useState<string | null>(null);
 
@@ -101,22 +102,57 @@ export const StockView: React.FC<StockViewProps> = ({
     );
   }, [stockRows]);
 
+  const activeStockCount = useMemo(
+    () =>
+      stockRows.filter(
+        (r) =>
+          r.physiqueCave > 0 ||
+          r.enCommandeFournisseur > 0 ||
+          r.reserveClients > 0 ||
+          r.disponibleVente !== 0 ||
+          r.hasAdvanceStock
+      ).length,
+    [stockRows]
+  );
+
   const filteredStock = useMemo(() => {
     const q = normalizeSearchText(search);
-    return stockRows.filter((r) => {
-      if (q) {
-        const hay = normalizeSearchText(
-          `${r.catalog.domaine} ${r.catalog.cuvee} ${r.catalog.vente}`
-        );
-        if (!hay.includes(q)) return false;
-      }
-      if (filter === 'avance') return r.hasAdvanceStock;
-      if (filter === 'dispo') return r.disponibleVente > 0;
-      if (filter === 'attente') return r.enCommandeFournisseur > 0 || r.attenteReceptionClients > 0;
-      if (filter === 'deficit') return r.disponibleVente < 0;
-      return true;
-    });
-  }, [stockRows, search, filter]);
+    const hasActiveMovement = (r: StockSummaryRow) =>
+      r.physiqueCave > 0 ||
+      r.enCommandeFournisseur > 0 ||
+      r.reserveClients > 0 ||
+      r.disponibleVente !== 0 ||
+      r.hasAdvanceStock;
+
+    return stockRows
+      .filter((r) => {
+        if (q) {
+          const hay = normalizeSearchText(
+            `${r.catalog.domaine} ${r.catalog.cuvee} ${r.catalog.vente}`
+          );
+          if (!hay.includes(q)) return false;
+        }
+        if (filter === 'avance') return r.hasAdvanceStock;
+        if (filter === 'dispo') return r.disponibleVente > 0;
+        if (filter === 'attente')
+          return r.enCommandeFournisseur > 0 || r.attenteReceptionClients > 0;
+        if (filter === 'deficit') return r.disponibleVente < 0;
+        if (!q && !showZeroRows && !hasActiveMovement(r)) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const rank = (r: StockSummaryRow) => {
+          if (r.disponibleVente < 0) return 0; // À commander en priorité
+          if (r.disponibleVente > 0) return 1; // Dispo libre
+          if (r.reserveClients > 0 || r.enCommandeFournisseur > 0) return 2;
+          if (r.physiqueCave > 0) return 3;
+          return 4;
+        };
+        const diff = rank(a) - rank(b);
+        if (diff !== 0) return diff;
+        return a.disponibleVente - b.disponibleVente;
+      });
+  }, [stockRows, search, filter, showZeroRows]);
 
   const sortedLots = useMemo(() => {
     const q = normalizeSearchText(search);
@@ -151,7 +187,7 @@ export const StockView: React.FC<StockViewProps> = ({
           className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors whitespace-nowrap shrink-0"
         >
           <PackagePlus className="w-4 h-4" />
-          <span>Nouvel achat / mise en cave</span>
+          <span>Nouvel achat domaine</span>
         </button>
       </div>
 
@@ -167,7 +203,7 @@ export const StockView: React.FC<StockViewProps> = ({
       {/* 4 Stock KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
-          <div className="text-xs text-[#6B6B66]">Physique en cave</div>
+          <div className="text-xs text-[#6B6B66]">Reçu par LBG (stock)</div>
           <div className="mt-1.5 text-xl font-semibold text-[#141413] font-mono-num">
             {totals.physique} btl
           </div>
@@ -209,7 +245,7 @@ export const StockView: React.FC<StockViewProps> = ({
                 : 'text-[#6B6B66] hover:text-[#141413]'
             }`}
           >
-            Position par cuvée ({stockRows.length})
+            Position par cuvée ({activeStockCount} actives)
           </button>
           <button
             onClick={() => setSubTab('lots')}
@@ -250,6 +286,18 @@ export const StockView: React.FC<StockViewProps> = ({
             </div>
           )}
 
+          {subTab === 'inventory' && filter === 'all' && !search.trim() && stockRows.length > activeStockCount && (
+            <button
+              type="button"
+              onClick={() => setShowZeroRows((v) => !v)}
+              className="px-2.5 py-1.5 text-xs font-medium text-[#6B6B66] hover:text-[#141413] bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap"
+            >
+              {showZeroRows
+                ? `Masquer les ${stockRows.length - activeStockCount} sans mouvement`
+                : `Tout voir (${stockRows.length})`}
+            </button>
+          )}
+
           <div className="relative w-full sm:w-64">
             <Search className="w-4 h-4 text-[#6B6B66] absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -272,7 +320,7 @@ export const StockView: React.FC<StockViewProps> = ({
                 <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
                   <th className="py-3 px-5 font-medium">Domaine &amp; Cuvée</th>
                   <th className="py-3 px-4 font-medium text-right">
-                    Physique cave
+                    Reçu LBG
                   </th>
                   <th className="py-3 px-4 font-medium text-right">
                     En commande dom.

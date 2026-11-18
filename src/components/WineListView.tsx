@@ -34,6 +34,7 @@ export const WineListView: React.FC<WineListViewProps> = ({
   const [mode, setMode] = useState<'curate' | 'showcase'>('showcase');
   const [regionFilter, setRegionFilter] = useState<string>('all');
   const [colorFilter, setColorFilter] = useState<string>('all');
+  const [onlyInStock, setOnlyInStock] = useState(false);
   const [search, setSearch] = useState('');
   const [copiedCard, setCopiedCard] = useState(false);
 
@@ -66,6 +67,9 @@ export const WineListView: React.FC<WineListViewProps> = ({
   const showcaseWines = useMemo(() => {
     const q = normalizeSearchText(search);
     return selectedWines.filter((w) => {
+      if (onlyInStock && (stockMap.get(w.id)?.disponibleVente ?? 0) <= 0) {
+        return false;
+      }
       if (regionFilter !== 'all' && w.region !== regionFilter) return false;
       if (colorFilter !== 'all' && w.color !== colorFilter) return false;
       if (q) {
@@ -76,7 +80,7 @@ export const WineListView: React.FC<WineListViewProps> = ({
       }
       return true;
     });
-  }, [selectedWines, regionFilter, colorFilter, search]);
+  }, [selectedWines, onlyInStock, stockMap, regionFilter, colorFilter, search]);
 
   const groupedByRegion = useMemo(() => {
     const map = new Map<string, WineCatalogItem[]>();
@@ -464,6 +468,18 @@ export const WineListView: React.FC<WineListViewProps> = ({
                   )
                 )}
               </div>
+
+              <button
+                type="button"
+                onClick={() => setOnlyInStock((v) => !v)}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-lg border transition-colors whitespace-nowrap ${
+                  onlyInStock
+                    ? 'bg-[#15803D] text-white border-[#15803D]'
+                    : 'bg-[#FAF9F7] text-[#4A4A45] border-[#D8D6D0] hover:bg-[#F3F1EC]'
+                }`}
+              >
+                En stock dispo uniquement
+              </button>
             </div>
 
             <div className="relative w-full sm:w-52">

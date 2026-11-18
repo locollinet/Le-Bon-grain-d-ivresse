@@ -376,7 +376,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
           <div className="text-xs font-medium text-[#6B6B66]">
-            Capital immobilisé (cave &amp; avances)
+            Capital immobilisé (stock &amp; avances)
           </div>
           <div className="mt-2 text-2xl font-semibold text-[#141413] font-mono-num">
             {formatEUR(metrics.capitalImmobiliseHT)}
@@ -402,7 +402,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
           <div className="mt-2 text-xs flex items-center gap-1.5 tabular-nums">
             <span className="text-[#15803D] font-medium">
-              {metrics.readyToDeliver} prêtes en cave
+              {metrics.readyToDeliver} reçues par LBG
             </span>
             <span aria-hidden="true" className="text-[#C7C5BE]">
               ·
@@ -489,7 +489,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </span>
                         ) : row.ready > 0 ? (
                           <span className="text-[#15803D] font-medium">
-                            {row.ready} btl prêtes en cave
+                            {row.ready} btl reçues LBG
                           </span>
                         ) : (
                           <span className="text-[#6B6B66]">
@@ -564,7 +564,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       onClick={() => onNavigate('stock')}
                       className="text-[#721C24] font-medium hover:underline inline-block pt-0.5"
                     >
-                      Ouvrir la cave &amp; avances →
+                      Ouvrir Stock &amp; Achats →
                     </button>
                   </div>
                 </div>

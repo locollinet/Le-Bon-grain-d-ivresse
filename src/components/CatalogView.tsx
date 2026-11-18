@@ -47,6 +47,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [domaineFilter, setDomaineFilter] = useState('all');
+  const [venteFilter, setVenteFilter] = useState('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<WineCatalogItem | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -101,10 +102,16 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
     [catalog]
   );
 
+  const ventes = useMemo(
+    () => Array.from(new Set(catalog.map((c) => c.vente).filter(Boolean))),
+    [catalog]
+  );
+
   const filtered = useMemo(() => {
     const q = normalizeSearchText(search);
     return catalog.filter((c) => {
       if (domaineFilter !== 'all' && c.domaine !== domaineFilter) return false;
+      if (venteFilter !== 'all' && c.vente !== venteFilter) return false;
       if (q) {
         const hay = normalizeSearchText(
           `${c.domaine} ${c.cuvee} ${c.vente} ${c.region} ${c.canal ?? ''}`
@@ -113,7 +120,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
       }
       return true;
     });
-  }, [catalog, domaineFilter, search]);
+  }, [catalog, domaineFilter, venteFilter, search]);
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -182,6 +189,19 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-[#E5E4DF] rounded-xl p-4">
         <div className="flex flex-wrap items-center gap-3">
           <select
+            value={venteFilter}
+            onChange={(e) => setVenteFilter(e.target.value)}
+            className="px-3 py-1.5 text-sm bg-[#FAF9F7] border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+          >
+            <option value="all">Toutes les ventes ({ventes.length})</option>
+            {ventes.map((v) => (
+              <option key={v} value={v}>
+                {v}
+              </option>
+            ))}
+          </select>
+
+          <select
             value={domaineFilter}
             onChange={(e) => setDomaineFilter(e.target.value)}
             className="px-3 py-1.5 text-sm bg-[#FAF9F7] border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
@@ -195,7 +215,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
           </select>
 
           <span className="text-xs text-[#6B6B66]">
-            {filtered.length} référence(s) affichée(s)
+            {filtered.length} / {catalog.length} référence(s)
           </span>
         </div>
 
