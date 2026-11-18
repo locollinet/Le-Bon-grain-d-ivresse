@@ -246,7 +246,12 @@ test('Strict Excel mode vs Demo lots behavior', () => {
   const labetChalasse = byId.get('cat_labet_chalasse');
   assert.ok(labetChalasse);
   assert.equal(labetChalasse.disponibleVente, 0);
-  assert.equal(labetChalasse.physiqueCave, 5);
+  assert.equal(labetChalasse.physiqueCave, 3);
+
+  const labetChampsRouges = byId.get('cat_labet_champs_rouges');
+  assert.ok(labetChampsRouges);
+  assert.equal(labetChampsRouges.disponibleVente, 0);
+  assert.equal(labetChampsRouges.physiqueCave, 5);
 
   // Pattes-Loup Dispos match Tarifs col S
   assert.equal(byId.get('cat_pattes_vent_dange_20')?.disponibleVente, 20);
