@@ -1,0 +1,6 @@
+{
+  "name": "Le Bon Grain d'Ivresse — Gestion Négoce",
+  "description": "Pilotage de négoce en vin pour Le Bon Grain d'Ivresse : import HelloAsso, lecture IA de factures, suivi de stock, facturation/TVA, bilans financiers, rapports clients et carte des vins.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
