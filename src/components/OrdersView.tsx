@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ClipboardPaste,
   Download,
+  Pencil,
   Plus,
   Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import {
   AppSettings,
@@ -13,7 +15,7 @@ import {
   WineCatalogItem,
 } from '../types/wine';
 import {
-  computeBottleEconomics,
+  computeOrderLineEconomics,
   formatDateFR,
   formatEUR,
   formatPct,
@@ -25,7 +27,9 @@ interface OrdersViewProps {
   orders: OrderLine[];
   catalog: WineCatalogItem[];
   settings: AppSettings;
+  initialFocus?: { search?: string; vente?: string } | null;
   onUpdateOrderStatus: (orderId: string, statut: OrderStatus) => void;
+  onUpdateOrder?: (updated: OrderLine) => void;
   onBulkUpdateCampaignStatus: (
     vente: string,
     fromStatus: OrderStatus,
@@ -43,11 +47,20 @@ const STATUS_LABELS: Record<OrderStatus, string> = {
   annule: 'Annulé',
 };
 
+const SOURCE_LABELS: Record<OrderLine['source'], string> = {
+  helloasso: 'HelloAsso',
+  direct: 'Vente directe',
+  perso: 'Cave perso',
+  facture_ia: 'Facture IA',
+};
+
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
   catalog,
   settings,
+  initialFocus,
   onUpdateOrderStatus,
+  onUpdateOrder,
   onBulkUpdateCampaignStatus,
   onDeleteOrder,
   onOpenImport,
@@ -56,6 +69,14 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
   const [venteFilter, setVenteFilter] = useState<string>('all');
+  const [editingOrder, setEditingOrder] = useState<OrderLine | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialFocus) return;
+    if (initialFocus.search !== undefined) setSearch(initialFocus.search);
+    if (initialFocus.vente !== undefined) setVenteFilter(initialFocus.vente);
+  }, [initialFocus]);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
@@ -90,13 +111,12 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     let caTTC = 0;
     let margeTotal = 0;
     for (const o of active) {
-      bottles += o.qte;
-      caTTC += o.prixUnitaireTTC * o.qte;
       const cat = catalogMap.get(o.catalogId);
-      if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        margeTotal += econ.margeEuro * o.qte;
-      }
+      const econ = computeOrderLineEconomics(o, cat, settings);
+      if (econ.isPerso) continue;
+      bottles += o.qte;
+      caTTC += econ.caTTC;
+      margeTotal += econ.margeEuroTotal;
     }
     return { bottles, caTTC, margeTotal };
   }, [filteredOrders, catalogMap, settings]);
@@ -110,15 +130,13 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
       'Produit',
       'Prix unitaire TTC',
       'Qte',
-      'Marge unitaire EUR',
+      'Marge totale EUR',
       'Statut',
       'Source',
     ];
     const rows = filteredOrders.map((o) => {
       const cat = catalogMap.get(o.catalogId);
-      const econ = cat
-        ? computeBottleEconomics(cat, settings, o.prixUnitaireTTC)
-        : null;
+      const econ = computeOrderLineEconomics(o, cat, settings);
       return [
         formatDateFR(o.date),
         o.refCommande,
@@ -127,9 +145,9 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         o.produitLabel,
         o.prixUnitaireTTC.toFixed(2).replace('.', ','),
         String(o.qte),
-        econ ? econ.margeEuro.toFixed(2).replace('.', ',') : '0,00',
+        econ.margeEuroTotal.toFixed(2).replace('.', ','),
         STATUS_LABELS[o.statut],
-        o.source,
+        SOURCE_LABELS[o.source],
       ]
         .map((v) => `"${v.replace(/"/g, '""')}"`)
         .join(';');
@@ -320,9 +338,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             <tbody className="divide-y divide-[#ECEAE4]">
               {filteredOrders.map((o) => {
                 const cat = catalogMap.get(o.catalogId);
-                const econ = cat
-                  ? computeBottleEconomics(cat, settings, o.prixUnitaireTTC)
-                  : null;
+                const econ = computeOrderLineEconomics(o, cat, settings);
                 const isCancelled = o.statut === 'annule';
                 return (
                   <tr
@@ -343,7 +359,7 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       <div>{o.vente}</div>
                       {o.source !== 'helloasso' && (
                         <div className="text-[#721C24] font-medium">
-                          {o.source === 'direct' ? 'Vente directe' : 'Cave perso'}
+                          {SOURCE_LABELS[o.source]}
                         </div>
                       )}
                     </td>
@@ -373,16 +389,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     <td className="py-2.5 px-4 text-right font-mono-num">
                       {isCancelled ? (
                         <span className="text-[#6B6B66]">—</span>
-                      ) : econ ? (
+                      ) : econ.isPerso ? (
+                        <span className="text-xs text-[#6B6B66]">
+                          Perso (0 €)
+                        </span>
+                      ) : cat ? (
                         <div>
                           <span
                             className={`font-medium ${
-                              econ.margeEuro >= 0
+                              econ.margeEuroTotal >= 0
                                 ? 'text-[#15803D]'
                                 : 'text-[#B91C1C]'
                             }`}
                           >
-                            {formatEUR(econ.margeEuro * o.qte, true)}
+                            {formatEUR(econ.margeEuroTotal, true)}
                           </span>
                           <div className="text-[11px] text-[#6B6B66]">
                             {formatPct(econ.margePct)}
@@ -419,15 +439,29 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                         <option value="annule">Annulé</option>
                       </select>
                     </td>
-                    <td className="py-2.5 px-3 text-right">
-                      <button
-                        onClick={() => onDeleteOrder(o.id)}
-                        className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] rounded-md transition-colors"
-                        title="Supprimer la ligne"
-                        aria-label="Supprimer la ligne"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1">
+                        {onUpdateOrder && (
+                          <button
+                            type="button"
+                            onClick={() => setEditingOrder({ ...o })}
+                            className="p-1.5 text-[#9E9B93] hover:text-[#141413] rounded-md transition-colors"
+                            title="Modifier la commande"
+                            aria-label="Modifier la commande"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(o.id)}
+                          className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] rounded-md transition-colors"
+                          title="Supprimer la ligne"
+                          aria-label="Supprimer la ligne"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -447,6 +481,165 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Edit Order Modal */}
+      {editingOrder && onUpdateOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md bg-white border border-[#E5E4DF] rounded-xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E4DF]">
+              <h3 className="text-base font-semibold text-[#141413]">
+                Modifier la ligne commande ({editingOrder.refCommande})
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingOrder(null)}
+                className="p-1 text-[#6B6B66] hover:text-[#141413]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                onUpdateOrder(editingOrder);
+                setEditingOrder(null);
+              }}
+              className="p-5 space-y-3 text-xs"
+            >
+              <div>
+                <label className="block font-medium text-[#6B6B66] mb-1">
+                  Cuvée catalogue associée
+                </label>
+                <select
+                  value={editingOrder.catalogId}
+                  onChange={(e) => {
+                    const cat = catalogMap.get(e.target.value);
+                    setEditingOrder({
+                      ...editingOrder,
+                      catalogId: e.target.value,
+                      produitLabel: cat?.cuvee ?? editingOrder.produitLabel,
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-[#D8D6D0] rounded-lg"
+                >
+                  {catalog.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.domaine} — {c.cuvee}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-medium text-[#6B6B66] mb-1">
+                    Quantité
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={editingOrder.qte}
+                    onChange={(e) =>
+                      setEditingOrder({
+                        ...editingOrder,
+                        qte: Math.max(1, Number(e.target.value)),
+                      })
+                    }
+                    className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-[#6B6B66] mb-1">
+                    PU TTC (€)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    min={0}
+                    value={editingOrder.prixUnitaireTTC}
+                    onChange={(e) =>
+                      setEditingOrder({
+                        ...editingOrder,
+                        prixUnitaireTTC: Math.max(0, Number(e.target.value)),
+                      })
+                    }
+                    className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block font-medium text-[#6B6B66] mb-1">
+                  Vente / Campagne
+                </label>
+                <input
+                  type="text"
+                  value={editingOrder.vente}
+                  onChange={(e) =>
+                    setEditingOrder({ ...editingOrder, vente: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-[#D8D6D0] rounded-lg"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E4DF]">
+                <button
+                  type="button"
+                  onClick={() => setEditingOrder(null)}
+                  className="px-3.5 py-1.5 text-[#6B6B66]"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 font-medium text-white bg-[#721C24] rounded-lg"
+                >
+                  Enregistrer
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteId && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm bg-white border border-[#E5E4DF] rounded-xl shadow-2xl p-5 space-y-4">
+            <h3 className="text-base font-semibold text-[#141413]">
+              Supprimer cette ligne de commande ?
+            </h3>
+            <p className="text-xs text-[#6B6B66]">
+              Si la commande a été annulée par le client, préférez le statut «
+              Annulé » pour garder la trace comptable.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-3.5 py-1.5 text-xs font-medium text-[#6B6B66]"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteOrder(confirmDeleteId);
+                  setConfirmDeleteId(null);
+                }}
+                className="px-4 py-1.5 text-xs font-medium text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+              >
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

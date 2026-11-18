@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { AlertTriangle, X } from 'lucide-react';
 import {
   OrderLine,
   OrderSource,
   OrderStatus,
+  StockSummaryRow,
   WineCatalogItem,
 } from '../types/wine';
 import { formatEUR } from '../utils/wineMath';
+import type { DirectOrderPrefill } from '../modules/assistant/types';
 
 interface NewDirectOrderModalProps {
   isOpen: boolean;
   onClose: () => void;
   catalog: WineCatalogItem[];
+  stockRows: StockSummaryRow[];
+  prefill?: DirectOrderPrefill | null;
   onAddOrder: (order: OrderLine) => void;
 }
 
@@ -19,6 +23,8 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
   isOpen,
   onClose,
   catalog,
+  stockRows,
+  prefill,
   onAddOrder,
 }) => {
   const [catalogId, setCatalogId] = useState(catalog[0]?.id ?? '');
@@ -32,9 +38,33 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState('');
 
+  useEffect(() => {
+    if (!isOpen) return;
+    setCatalogId(prefill?.catalogId || catalog[0]?.id || '');
+    setNomClient(prefill?.nomClient ?? '');
+    setPrenomClient(prefill?.prenomClient ?? '');
+    setEmailClient(prefill?.emailClient ?? '');
+    setQte(prefill?.qte ? Math.max(1, prefill.qte) : 1);
+    setPrixOverride(
+      prefill?.prixOverride !== undefined ? String(prefill.prixOverride) : ''
+    );
+    const nextSource = prefill?.source ?? 'direct';
+    setSource(nextSource);
+    setStatut(
+      prefill?.statut ?? (nextSource === 'perso' ? 'remis_client' : 'recu_lbg')
+    );
+    setDate(new Date().toISOString().slice(0, 10));
+    setNotes(prefill?.notes ?? '');
+  }, [isOpen, prefill, catalog]);
+
   if (!isOpen) return null;
 
   const selectedItem = catalog.find((c) => c.id === catalogId) ?? catalog[0];
+  const selectedStock = selectedItem
+    ? stockRows.find((r) => r.catalog.id === selectedItem.id)
+    : undefined;
+  const dispo = selectedStock?.disponibleVente ?? 0;
+
   const effectivePrice =
     source === 'perso'
       ? 0
@@ -42,17 +72,24 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
         ? Number(prixOverride)
         : selectedItem?.prixLbgTTC ?? 0;
 
+  const isOverStock = selectedItem !== undefined && qte > dispo;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedItem || !nomClient.trim()) return;
 
+    const uid =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : String(Date.now()).slice(-6);
+
     const newOrder: OrderLine = {
-      id: `ord_dir_${Date.now()}`,
+      id: `ord_dir_${uid}_${Date.now()}`,
       date,
       refCommande:
         source === 'perso'
-          ? `CAVE-${Date.now().toString().slice(-5)}`
-          : `DIR-${Date.now().toString().slice(-5)}`,
+          ? `CAVE-${uid.toUpperCase()}`
+          : `DIR-${uid.toUpperCase()}`,
       vente: selectedItem.vente,
       nomClient: nomClient.trim(),
       prenomClient: prenomClient.trim(),
@@ -67,12 +104,6 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
     };
 
     onAddOrder(newOrder);
-    setNomClient('');
-    setPrenomClient('');
-    setEmailClient('');
-    setQte(1);
-    setPrixOverride('');
-    setNotes('');
     onClose();
   };
 
@@ -117,7 +148,11 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
                 onChange={(e) => {
                   const val = e.target.value as OrderSource;
                   setSource(val);
-                  if (val === 'perso') setStatut('remis_client');
+                  if (val === 'perso') {
+                    setStatut('remis_client');
+                  } else if (statut === 'remis_client') {
+                    setStatut('recu_lbg');
+                  }
                 }}
                 className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
               >
@@ -139,9 +174,24 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-              Cuvée
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-[#6B6B66]">
+                Cuvée
+              </label>
+              {selectedStock && (
+                <span
+                  className={`text-xs font-mono-num font-medium ${
+                    dispo > 0
+                      ? 'text-[#15803D]'
+                      : dispo < 0
+                        ? 'text-[#B91C1C]'
+                        : 'text-[#6B6B66]'
+                  }`}
+                >
+                  Dispo libre : {dispo} btl · Cave : {selectedStock.physiqueCave} btl
+                </span>
+              )}
+            </div>
             <select
               value={catalogId}
               onChange={(e) => {
@@ -157,6 +207,17 @@ export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
               ))}
             </select>
           </div>
+
+          {isOverStock && (
+            <div className="flex items-start gap-2 p-3 text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" />
+              <span>
+                Stock libre insuffisant ({dispo} btl disponibles pour {qte} demandée
+                {qte > 1 ? 's' : ''}). L’enregistrement créera un déficit à
+                commander au domaine.
+              </span>
+            </div>
+          )}
 
           <div className="grid grid-cols-3 gap-3">
             <div>

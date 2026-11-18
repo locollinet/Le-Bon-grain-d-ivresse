@@ -19,6 +19,7 @@ import {
 } from '../types/wine';
 import {
   computeBottleEconomics,
+  computeOrderLineEconomics,
   formatDateFR,
   formatEUR,
   formatPct,
@@ -31,6 +32,7 @@ interface DashboardViewProps {
   campaigns: SalesCampaign[];
   settings: AppSettings;
   onNavigate: (tab: ActiveTab) => void;
+  onOpenCampaignOrders?: (vente: string) => void;
   onOpenImport: () => void;
   onOpenInvoiceAI: () => void;
   onOpenNewLot: () => void;
@@ -49,6 +51,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   campaigns,
   settings,
   onNavigate,
+  onOpenCampaignOrders,
   onOpenImport,
   onOpenInvoiceAI,
   onOpenNewLot,
@@ -69,7 +72,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     new Date().toISOString().slice(0, 10)
   );
   const [newCampCanal, setNewCampCanal] =
-    useState<SalesCampaign['canal']>('HelloAsso');
+    useState<SalesCampaign['canal']>('Club');
+  const [newCampContact, setNewCampContact] = useState('Romain');
 
   const dismissGuide = () => {
     setShowGuide(false);
@@ -89,6 +93,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       domaine: newCampName.trim(),
       dateOuverture: newCampDate,
       canal: newCampCanal,
+      contact: newCampContact.trim() || undefined,
       statut: 'Planifiée',
     });
     setNewCampName('');
@@ -103,19 +108,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const validOrders = orders.filter((o) => o.statut !== 'annule');
     let caTTC = 0;
     let caHT = 0;
+    let coutTotalHT = 0;
     let margeTotal = 0;
     let totalBottles = 0;
     let readyToDeliver = 0;
     let awaitingDomain = 0;
 
     for (const o of validOrders) {
-      totalBottles += o.qte;
-      caTTC += o.prixUnitaireTTC * o.qte;
       const cat = catalogMap.get(o.catalogId);
-      if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        caHT += econ.prixHT * o.qte;
-        margeTotal += econ.margeEuro * o.qte;
+      const lineEcon = computeOrderLineEconomics(o, cat, settings);
+      if (!lineEcon.isPerso) {
+        totalBottles += o.qte;
+        caTTC += lineEcon.caTTC;
+        caHT += lineEcon.caHT;
+        coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
+        margeTotal += lineEcon.margeEuroTotal;
       }
       if (o.statut === 'recu_lbg') readyToDeliver += o.qte;
       if (o.statut === 'attente_reception') awaitingDomain += o.qte;
@@ -131,6 +138,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     );
 
     const lowMarginItems = catalog
+      .filter((c) => c.prixLbgTTC > 0)
       .map((c) => ({
         item: c,
         econ: computeBottleEconomics(c, settings),
@@ -146,7 +154,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       caTTC,
       caHT,
       margeTotal,
-      margePct: caHT > 0 ? (margeTotal / caHT) * 100 : 0,
+      margePct: coutTotalHT > 0 ? (margeTotal / coutTotalHT) * 100 : 0,
       totalBottles,
       readyToDeliver,
       awaitingDomain,
@@ -165,7 +173,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         vente: string;
         bottles: number;
         caTTC: number;
-        caHT: number;
+        coutTotalHT: number;
         marge: number;
         ready: number;
         waiting: number;
@@ -175,23 +183,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
     for (const o of orders) {
       if (o.statut === 'annule') continue;
+      const cat = catalogMap.get(o.catalogId);
+      const lineEcon = computeOrderLineEconomics(o, cat, settings);
       const existing = byVente.get(o.vente) ?? {
         vente: o.vente,
         bottles: 0,
         caTTC: 0,
-        caHT: 0,
+        coutTotalHT: 0,
         marge: 0,
         ready: 0,
         waiting: 0,
         delivered: 0,
       };
-      existing.bottles += o.qte;
-      existing.caTTC += o.prixUnitaireTTC * o.qte;
-      const cat = catalogMap.get(o.catalogId);
-      if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        existing.caHT += econ.prixHT * o.qte;
-        existing.marge += econ.margeEuro * o.qte;
+      if (!lineEcon.isPerso) {
+        existing.bottles += o.qte;
+        existing.caTTC += lineEcon.caTTC;
+        existing.coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
+        existing.marge += lineEcon.margeEuroTotal;
       }
       if (o.statut === 'recu_lbg') existing.ready += o.qte;
       if (o.statut === 'attente_reception') existing.waiting += o.qte;
@@ -407,11 +415,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </thead>
               <tbody className="divide-y divide-[#ECEAE4]">
                 {campaignPerformance.map((row) => {
-                  const pct = row.caHT > 0 ? (row.marge / row.caHT) * 100 : 0;
+                  const pct =
+                    row.coutTotalHT > 0 ? (row.marge / row.coutTotalHT) * 100 : 0;
                   return (
                     <tr
                       key={row.vente}
-                      className="hover:bg-[#FAF9F7] transition-colors"
+                      onClick={() => onOpenCampaignOrders?.(row.vente)}
+                      className={`hover:bg-[#FAF9F7] transition-colors ${
+                        onOpenCampaignOrders ? 'cursor-pointer' : ''
+                      }`}
                     >
                       <td className="py-3.5 px-5 font-medium text-[#141413]">
                         {row.vente}
@@ -573,7 +585,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   placeholder="Nom de la vente (ex : Ganevat Décembre)"
                   className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#D8D6D0] rounded"
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <input
                     type="date"
                     value={newCampDate}
@@ -587,11 +599,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     }
                     className="px-2 py-1 text-xs bg-white border border-[#D8D6D0] rounded"
                   >
+                    <option value="Club">Club</option>
+                    <option value="WhatsApp">WhatsApp</option>
                     <option value="HelloAsso">HelloAsso</option>
                     <option value="Vente directe">Vente directe</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="Club">Club</option>
                   </select>
+                  <input
+                    type="text"
+                    value={newCampContact}
+                    onChange={(e) => setNewCampContact(e.target.value)}
+                    placeholder="Contact (Romain/Alice)"
+                    className="w-24 px-2 py-1 text-xs bg-white border border-[#D8D6D0] rounded"
+                  />
                   <button
                     type="submit"
                     className="px-3 py-1 text-xs font-medium text-white bg-[#721C24] rounded hover:bg-[#5B151C]"
@@ -616,6 +635,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span>{formatDateFR(camp.dateOuverture)}</span>
                       <span aria-hidden="true">·</span>
                       <span>{camp.canal}</span>
+                      {camp.contact && (
+                        <>
+                          <span aria-hidden="true">·</span>
+                          <span>{camp.contact}</span>
+                        </>
+                      )}
                     </div>
                   </div>
                   <select
@@ -630,17 +655,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                     className={`px-2 py-1 text-xs font-medium bg-[#FAF9F7] border border-[#E5E4DF] rounded cursor-pointer focus:outline-none ${
                       camp.statut === 'Planifiée'
                         ? 'text-[#721C24]'
-                        : camp.statut === 'En attente domaine'
-                          ? 'text-[#B45309]'
-                          : camp.statut === 'Clôturée'
-                            ? 'text-[#15803D]'
-                            : 'text-[#141413]'
+                        : camp.statut === 'Envisagée'
+                          ? 'text-[#6B6B66]'
+                          : camp.statut === 'En attente domaine'
+                            ? 'text-[#B45309]'
+                            : camp.statut === 'Clôturée' || camp.statut === 'Livrée'
+                              ? 'text-[#15803D]'
+                              : 'text-[#141413]'
                     }`}
                   >
+                    <option value="Envisagée">Envisagée</option>
                     <option value="Planifiée">Planifiée</option>
                     <option value="En cours">En cours</option>
                     <option value="En attente domaine">En attente domaine</option>
                     <option value="Clôturée">Clôturée</option>
+                    <option value="Livrée">Livrée</option>
                   </select>
                 </div>
               ))}

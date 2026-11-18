@@ -12,6 +12,8 @@ export interface ParsedHelloAssoRow {
   rawTarif: string;
   cleanCuveeName: string;
   montantTTC: number;
+  codePromo?: string;
+  discountTTC?: number;
   matchedCatalog: WineCatalogItem | null;
   confidence: 'exact' | 'fuzzy' | 'unmatched';
 }
@@ -23,6 +25,7 @@ function normalizeText(str: string): string {
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/^carte\s+/i, '')
     .replace(/[–—-]/g, ' ')
+    .replace(/[«»"'’`®]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -37,7 +40,6 @@ function parseFrenchNumber(raw: string): number {
 function parseDateToISO(raw: string): string {
   if (!raw) return new Date().toISOString().slice(0, 10);
   const trimmed = raw.trim();
-  // Match DD/MM/YYYY
   const frMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   if (frMatch) {
     const day = frMatch[1].padStart(2, '0');
@@ -45,12 +47,15 @@ function parseDateToISO(raw: string): string {
     const year = frMatch[3].length === 2 ? `20${frMatch[3]}` : frMatch[3];
     return `${year}-${month}-${day}`;
   }
-  // Match YYYY-MM-DD
   const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) {
     return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
   }
   return new Date().toISOString().slice(0, 10);
+}
+
+function extractYears(str: string): string[] {
+  return str.match(/\b(19\d{2}|20\d{2})\b/g) ?? [];
 }
 
 function matchCatalogItem(
@@ -60,38 +65,64 @@ function matchCatalogItem(
   const target = normalizeText(cleanName);
   if (!target) return { item: null, confidence: 'unmatched' };
 
-  // 1. Exact cuvee or reference match
-  for (const item of catalog) {
-    if (
+  // 1. Correspondance exacte sur cuvée ou référence (hors variantes Club/WhatsApp si même cuvée)
+  const exactMatches = catalog.filter(
+    (item) =>
       normalizeText(item.cuvee) === target ||
       normalizeText(item.reference) === target
-    ) {
-      return { item, confidence: 'exact' };
-    }
+  );
+  if (exactMatches.length > 0) {
+    const preferred =
+      exactMatches.find((m) => m.canal !== 'WhatsApp') ?? exactMatches[0];
+    return { item: preferred, confidence: 'exact' };
   }
 
-  // 2. Substring / token overlap match
+  // 2. Meilleur score sur tous les candidats (priorité au millésime exact et recouvrement de tokens)
+  const targetYears = extractYears(target);
+  const targetTokens = target.split(' ').filter((t) => t.length > 1);
+
   let bestMatch: WineCatalogItem | null = null;
   let bestScore = 0;
 
-  const targetTokens = target.split(' ').filter((t) => t.length > 2);
-
   for (const item of catalog) {
-    const cand = normalizeText(`${item.domaine} ${item.cuvee}`);
-    if (cand.includes(target) || target.includes(normalizeText(item.cuvee))) {
-      return { item, confidence: 'fuzzy' };
+    const normCuvee = normalizeText(item.cuvee);
+    const normDomaine = normalizeText(item.domaine);
+    const cand = `${normDomaine} ${normCuvee}`.trim();
+
+    // Éviter de matcher un millésime explicitement différent
+    const candYears = extractYears(normCuvee);
+    if (
+      targetYears.length > 0 &&
+      candYears.length > 0 &&
+      !targetYears.some((y) => candYears.includes(y))
+    ) {
+      continue;
     }
-    const candTokens = cand.split(' ').filter((t) => t.length > 2);
-    const overlap = targetTokens.filter((t) => candTokens.includes(t)).length;
-    const score = overlap / Math.max(targetTokens.length, 1);
-    if (score > bestScore && score >= 0.6) {
+
+    let score = 0;
+    if (normCuvee === target) {
+      score = 1.0;
+    } else if (normCuvee.includes(target) || target.includes(normCuvee)) {
+      const lenRatio =
+        Math.min(target.length, normCuvee.length) /
+        Math.max(target.length, normCuvee.length, 1);
+      score = 0.72 + lenRatio * 0.25;
+    } else {
+      const candTokens = cand.split(' ').filter((t) => t.length > 1);
+      const overlap = targetTokens.filter((t) => candTokens.includes(t)).length;
+      const precision = overlap / Math.max(targetTokens.length, 1);
+      const recall = overlap / Math.max(candTokens.length, 1);
+      score = precision * 0.7 + recall * 0.3;
+    }
+
+    if (score > bestScore && score >= 0.62) {
       bestScore = score;
       bestMatch = item;
     }
   }
 
   return bestMatch
-    ? { item: bestMatch, confidence: 'fuzzy' }
+    ? { item: bestMatch, confidence: bestScore >= 0.96 ? 'exact' : 'fuzzy' }
     : { item: null, confidence: 'unmatched' };
 }
 
@@ -105,7 +136,12 @@ function splitDelimitedLine(line: string, delimiter: string): string[] {
   for (let i = 0; i < line.length; i++) {
     const ch = line[i];
     if (ch === '"') {
-      inQuotes = !inQuotes;
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
     } else if (ch === delimiter && !inQuotes) {
       result.push(current.trim());
       current = '';
@@ -128,7 +164,7 @@ export function parseHelloAssoText(
 
   if (lines.length === 0) return [];
 
-  // Detect delimiter (tab from Excel copy-paste, semicolon from French CSV, comma)
+  // Détecter le séparateur (tab depuis Excel, ; depuis CSV FR, , depuis CSV HelloAsso brut)
   const firstLine = lines[0];
   const tabCount = (firstLine.match(/\t/g) ?? []).length;
   const semiCount = (firstLine.match(/;/g) ?? []).length;
@@ -138,7 +174,6 @@ export function parseHelloAssoText(
     normalizeText(c)
   );
 
-  // Detect header columns dynamically
   const hasHeader =
     firstCells.some((c) => c.includes('tarif') || c.includes('payeur')) ||
     firstCells.some((c) => c.includes('statut'));
@@ -151,22 +186,32 @@ export function parseHelloAssoText(
   let idxEmail = 5;
   let idxTarif = 8;
   let idxMontant = 9;
+  let idxPromoCode = 10;
+  let idxPromoAmount = 11;
 
   if (hasHeader) {
-    const findIdx = (patterns: string[], fallback: number) => {
-      const idx = firstCells.findIndex((c) =>
-        patterns.some((p) => c.includes(p))
-      );
-      return idx >= 0 ? idx : fallback;
+    const findIdx = (patterns: string[], fallback: number, exactOnly?: boolean) => {
+      for (const p of patterns) {
+        const idx = firstCells.findIndex((c) =>
+          exactOnly ? c === p : c.includes(p)
+        );
+        if (idx >= 0) return idx;
+      }
+      return fallback;
     };
-    idxRef = findIdx(['ref', 'commande', 'id'], 0);
-    idxDate = findIdx(['date'], 1);
-    idxStatut = findIdx(['statut', 'status'], 2);
+    idxRef = findIdx(['reference commande', 'ref commande', 'ref', 'commande', 'id'], 0);
+    idxDate = findIdx(['date de la commande', 'date'], 1);
+    idxStatut = findIdx(['statut de la commande', 'statut', 'status'], 2);
     idxNom = findIdx(['nom payeur', 'nom'], 3);
     idxPrenom = findIdx(['prenom payeur', 'prenom'], 4);
-    idxEmail = findIdx(['email', 'mail'], 5);
-    idxTarif = findIdx(['tarif', 'produit', 'billet'], 8);
+    idxEmail = findIdx(['email payeur', 'email', 'mail'], 5);
+    idxTarif = findIdx(['tarif', 'produit', 'billet'], 8, true);
+    if (idxTarif === 8 && firstCells[8] !== 'tarif') {
+      idxTarif = findIdx(['tarif', 'produit', 'billet'], 8);
+    }
     idxMontant = findIdx(['montant tarif', 'montant', 'prix'], 9);
+    idxPromoCode = findIdx(['code promo'], 10);
+    idxPromoAmount = findIdx(['montant code promo'], 11);
   }
 
   const startRow = hasHeader ? 1 : 0;
@@ -176,8 +221,8 @@ export function parseHelloAssoText(
     const cells = splitDelimitedLine(lines[i], delimiter);
     if (cells.length < 4) continue;
 
-    // Support both full 10+ col HelloAsso export and compact 6-col paste
-    const refCommande = cells[idxRef] || `HA-${Date.now().toString().slice(-6)}-${i}`;
+    const refCommande =
+      cells[idxRef] || `HA-${Date.now().toString().slice(-6)}-${i}`;
     const dateISO = parseDateToISO(cells[idxDate] || '');
     const statutRaw = cells[idxStatut] || 'Validé';
     const isCancelled = normalizeText(statutRaw).includes('annul');
@@ -186,12 +231,10 @@ export function parseHelloAssoText(
     const prenomClient = cells[idxPrenom] || '';
     const emailClient = cells[idxEmail] || '';
 
-    // Handle cases where Raison sociale / Moyen columns were omitted
     let rawTarif = cells[idxTarif] || '';
     let montantRaw = cells[idxMontant] || '';
 
     if (!rawTarif && cells.length >= 7) {
-      // Try finding first cell starting with "Carte "
       const carteIdx = cells.findIndex((c) => /^carte\s+/i.test(c));
       if (carteIdx >= 0) {
         rawTarif = cells[carteIdx];
@@ -202,8 +245,14 @@ export function parseHelloAssoText(
     if (!rawTarif) continue;
 
     const cleanCuveeName = rawTarif.replace(/^carte\s+/i, '').trim();
-    const montantTTC = parseFrenchNumber(montantRaw);
+    const rawMontantTTC = parseFrenchNumber(montantRaw);
+    const codePromo = cells[idxPromoCode]?.trim() || undefined;
+    const discountTTC = Math.abs(parseFrenchNumber(cells[idxPromoAmount] || ''));
     const { item, confidence } = matchCatalogItem(cleanCuveeName, catalog);
+
+    const baseMontant =
+      rawMontantTTC > 0 ? rawMontantTTC : item?.prixLbgTTC ?? 0;
+    const finalMontant = Math.max(0, Number((baseMontant - discountTTC).toFixed(2)));
 
     parsed.push({
       rowIndex: i + 1,
@@ -216,7 +265,9 @@ export function parseHelloAssoText(
       emailClient,
       rawTarif,
       cleanCuveeName,
-      montantTTC: montantTTC > 0 ? montantTTC : item?.prixLbgTTC ?? 0,
+      montantTTC: finalMontant,
+      codePromo,
+      discountTTC: discountTTC > 0 ? discountTTC : undefined,
       matchedCatalog: item,
       confidence,
     });
@@ -230,18 +281,21 @@ export function groupParsedRowsToOrderLines(
   defaultVente: string,
   defaultStatus: OrderStatus = 'attente_reception'
 ): OrderLine[] {
-  // HelloAsso outputs 1 line per bottle! Consolidate identical (ref + client + cuvee) into Qty
+  // HelloAsso sort 1 ligne par bouteille : consolider (ref + client + cuvée + prix + statut) en quantité
   const grouped = new Map<string, OrderLine>();
 
   rows.forEach((r, idx) => {
-    const catId = r.matchedCatalog?.id ?? `unmatched_${idx}`;
+    const catId = r.matchedCatalog?.id ?? `unmatched_${r.cleanCuveeName.toLowerCase()}`;
     const status: OrderStatus =
       r.mappedStatus === 'annule' ? 'annule' : defaultStatus;
-    const key = `${r.refCommande}__${r.nomClient}__${r.prenomClient}__${catId}__${r.cleanCuveeName}__${status}`;
+    const key = `${r.refCommande}__${r.nomClient}__${r.prenomClient}__${catId}__${r.cleanCuveeName}__${r.montantTTC}__${status}`;
 
     const existing = grouped.get(key);
     if (existing) {
       existing.qte += 1;
+      if (r.discountTTC) {
+        existing.discountTTC = (existing.discountTTC ?? 0) + r.discountTTC;
+      }
     } else {
       grouped.set(key, {
         id: `ord_imp_${Date.now()}_${idx}`,
@@ -257,6 +311,9 @@ export function groupParsedRowsToOrderLines(
         qte: 1,
         statut: status,
         source: 'helloasso',
+        codePromo: r.codePromo,
+        discountTTC: r.discountTTC,
+        notes: r.codePromo ? `Code promo : ${r.codePromo}` : undefined,
       });
     }
   });

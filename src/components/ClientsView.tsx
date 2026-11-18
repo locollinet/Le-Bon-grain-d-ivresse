@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   Copy,
@@ -29,6 +29,7 @@ interface ClientsViewProps {
   orders: OrderLine[];
   catalog: WineCatalogItem[];
   settings: AppSettings;
+  initialFocus?: { clientKey?: string; search?: string } | null;
   onUpdateSettings: (next: AppSettings) => void;
   onMarkClientReadyDelivered: (clientEmailOrKey: string) => void;
 }
@@ -37,6 +38,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   orders,
   catalog,
   settings,
+  initialFocus,
   onUpdateSettings,
   onMarkClientReadyDelivered,
 }) => {
@@ -45,6 +47,12 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
     null
   );
   const [copiedSummary, setCopiedSummary] = useState(false);
+
+  useEffect(() => {
+    if (!initialFocus) return;
+    if (initialFocus.search !== undefined) setSearch(initialFocus.search);
+    if (initialFocus.clientKey) setSelectedClientKey(initialFocus.clientKey);
+  }, [initialFocus]);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
@@ -111,7 +119,14 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
     lines.push('À très vite,\nRomain — Le Bon Grain d’Ivresse');
 
-    navigator.clipboard.writeText(lines.join('\n'));
+    const text = lines.join('\n');
+    try {
+      if (navigator.clipboard?.writeText) {
+        void navigator.clipboard.writeText(text);
+      }
+    } catch {
+      // ignore clipboard restrictions
+    }
     setCopiedSummary(true);
     setTimeout(() => setCopiedSummary(false), 2000);
   };
@@ -267,29 +282,36 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
             <>
               {/* Client Header */}
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 border-b border-[#ECEAE4] pb-4">
-                <div>
-                  <div className="text-xs text-[#6B6B66]">
-                    Fiche d’achat client · Le Bon Grain d’Ivresse
-                  </div>
-                  <h2 className="font-display text-2xl font-semibold text-[#141413] mt-0.5">
-                    {maskClientName(
-                      selectedCustomer.prenom,
-                      selectedCustomer.nom,
-                      settings.anonymizeClients
-                    )}
-                  </h2>
-                  <div className="text-xs text-[#6B6B66] mt-1 flex flex-wrap items-center gap-2">
-                    <span>
-                      {maskEmail(
-                        selectedCustomer.email,
+                <div className="flex items-start gap-3">
+                  <img
+                    src="/logo-lbg.png"
+                    alt="Le Bon Grain d’Ivresse"
+                    className="w-10 h-10 rounded-lg object-cover border border-[#E5E4DF] shrink-0 hidden print:block sm:block"
+                  />
+                  <div>
+                    <div className="text-xs text-[#6B6B66]">
+                      Fiche d’achat client · Le Bon Grain d’Ivresse
+                    </div>
+                    <h2 className="font-display text-2xl font-semibold text-[#141413] mt-0.5">
+                      {maskClientName(
+                        selectedCustomer.prenom,
+                        selectedCustomer.nom,
                         settings.anonymizeClients
-                      ) || 'Sans email'}
-                    </span>
-                    <span aria-hidden="true">·</span>
-                    <span>
-                      Dernière commande :{' '}
-                      {formatDateFR(selectedCustomer.derniereDate)}
-                    </span>
+                      )}
+                    </h2>
+                    <div className="text-xs text-[#6B6B66] mt-1 flex flex-wrap items-center gap-2">
+                      <span>
+                        {maskEmail(
+                          selectedCustomer.email,
+                          settings.anonymizeClients
+                        ) || 'Sans email'}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span>
+                        Dernière commande :{' '}
+                        {formatDateFR(selectedCustomer.derniereDate)}
+                      </span>
+                    </div>
                   </div>
                 </div>
 

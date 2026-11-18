@@ -1,40 +1,100 @@
-import React, { useMemo, useState } from 'react';
-import { Plus, Search, X } from 'lucide-react';
-import { AppSettings, WineCatalogItem, WineColor } from '../types/wine';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import {
+  AppSettings,
+  WineCatalogItem,
+  WineChannel,
+  WineColor,
+} from '../types/wine';
 import {
   computeBottleEconomics,
   formatEUR,
   formatPct,
   normalizeSearchText,
 } from '../utils/wineMath';
+import type { CatalogItemPrefill } from '../modules/assistant/types';
 
 interface CatalogViewProps {
   catalog: WineCatalogItem[];
   settings: AppSettings;
+  initialFocus?: { search?: string } | null;
+  prefillNew?: CatalogItemPrefill | null;
+  onClearPrefillNew?: () => void;
   onUpdateCatalogItem: (updated: WineCatalogItem) => void;
   onAddCatalogItem: (item: WineCatalogItem) => void;
+  onDeleteCatalogItem?: (id: string) => void;
 }
+
+const WINE_COLORS: WineColor[] = [
+  'Blanc',
+  'Rouge',
+  'Rosé',
+  'Orange',
+  'Effervescent',
+  'Jaune / Oxydatif',
+  'Doux / Liquoreux',
+];
 
 export const CatalogView: React.FC<CatalogViewProps> = ({
   catalog,
   settings,
+  initialFocus,
+  prefillNew,
+  onClearPrefillNew,
   onUpdateCatalogItem,
   onAddCatalogItem,
+  onDeleteCatalogItem,
 }) => {
   const [search, setSearch] = useState('');
   const [domaineFilter, setDomaineFilter] = useState('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<WineCatalogItem | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Add form state
   const [newDomaine, setNewDomaine] = useState('');
   const [newCuvee, setNewCuvee] = useState('');
   const [newVente, setNewVente] = useState('Vente Novembre 2026');
+  const [newCanal, setNewCanal] = useState<WineChannel>('Standard');
   const [newRegion, setNewRegion] = useState('Bourgogne');
   const [newColor, setNewColor] = useState<WineColor>('Blanc');
   const [newAchatHT, setNewAchatHT] = useState('25');
   const [newPrixTTC, setNewPrixTTC] = useState('39');
   const [newBenchTTC, setNewBenchTTC] = useState('48');
   const [newBenchSource, setNewBenchSource] = useState('Caviste');
+  const [newTastingNotes, setNewTastingNotes] = useState('');
+
+  useEffect(() => {
+    if (initialFocus?.search !== undefined) {
+      setSearch(initialFocus.search);
+    }
+  }, [initialFocus]);
+
+  useEffect(() => {
+    if (!prefillNew) return;
+    setNewDomaine(prefillNew.domaine ?? '');
+    setNewCuvee(prefillNew.cuvee ?? '');
+    setNewVente(prefillNew.vente ?? 'Vente Novembre 2026');
+    setNewCanal(prefillNew.canal ?? 'Standard');
+    setNewRegion(prefillNew.region ?? 'Bourgogne');
+    setNewColor(prefillNew.color ?? 'Blanc');
+    setNewAchatHT(
+      prefillNew.tarifAchatHT !== undefined
+        ? String(prefillNew.tarifAchatHT)
+        : '25'
+    );
+    setNewPrixTTC(
+      prefillNew.prixLbgTTC !== undefined ? String(prefillNew.prixLbgTTC) : '39'
+    );
+    setNewBenchTTC(
+      prefillNew.benchTTC !== undefined && prefillNew.benchTTC !== null
+        ? String(prefillNew.benchTTC)
+        : ''
+    );
+    setNewBenchSource(prefillNew.benchSource ?? 'Caviste');
+    setIsAddOpen(true);
+    onClearPrefillNew?.();
+  }, [prefillNew, onClearPrefillNew]);
 
   const domaines = useMemo(
     () => Array.from(new Set(catalog.map((c) => c.domaine))).sort(),
@@ -47,7 +107,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
       if (domaineFilter !== 'all' && c.domaine !== domaineFilter) return false;
       if (q) {
         const hay = normalizeSearchText(
-          `${c.domaine} ${c.cuvee} ${c.vente} ${c.region}`
+          `${c.domaine} ${c.cuvee} ${c.vente} ${c.region} ${c.canal ?? ''}`
         );
         if (!hay.includes(q)) return false;
       }
@@ -58,9 +118,14 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDomaine.trim() || !newCuvee.trim()) return;
+    const uid =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID().slice(0, 8)
+        : String(Date.now());
     const item: WineCatalogItem = {
-      id: `cat_${Date.now()}`,
+      id: `cat_${uid}_${Date.now()}`,
       vente: newVente.trim() || 'Catalogue général',
+      canal: newCanal,
       domaine: newDomaine.trim(),
       cuvee: newCuvee.trim(),
       reference: `${newDomaine.trim()} - ${newCuvee.trim()}`,
@@ -71,11 +136,23 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
       benchTTC: newBenchTTC ? Number(newBenchTTC) : null,
       benchSource: newBenchSource.trim() || 'Marché',
       dispoPublic: true,
+      tastingNotes: newTastingNotes.trim() || undefined,
     };
     onAddCatalogItem(item);
     setNewDomaine('');
     setNewCuvee('');
+    setNewTastingNotes('');
     setIsAddOpen(false);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    onUpdateCatalogItem({
+      ...editingItem,
+      reference: `${editingItem.domaine.trim()} - ${editingItem.cuvee.trim()}`,
+    });
+    setEditingItem(null);
   };
 
   return (
@@ -87,8 +164,8 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
             Catalogue, tarifs &amp; simulateur de marge
           </h1>
           <p className="text-sm text-[#6B6B66] mt-1">
-            Modifiez un prix de vente TTC ou un tarif d’achat HT directement
-            dans la grille pour vérifier la marge nette face au marché.
+            Tarifs EXW HT, logistique amont+aval ({formatEUR(settings.fraisLogistiqueAmont + settings.fraisLogistiqueAval)}/btl),
+            prix base conseillé (marque {Math.round((settings.tauxMarqueCibleExw ?? 0.1) * 100)} %) et benchmark marché.
           </p>
         </div>
 
@@ -143,10 +220,10 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                 <th className="py-3 px-5 font-medium">Domaine &amp; Cuvée</th>
                 <th className="py-3 px-3 font-medium">Vente</th>
                 <th className="py-3 px-3 font-medium text-right">
-                  Achat HT (€)
+                  Achat EXW HT
                 </th>
                 <th className="py-3 px-3 font-medium text-right">
-                  Prix LBG TTC (€)
+                  Prix LBG TTC
                 </th>
                 <th className="py-3 px-3 font-medium text-right">
                   Bench TTC
@@ -157,7 +234,10 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                 <th className="py-3 px-3 font-medium text-right">
                   Marge nette €
                 </th>
-                <th className="py-3 px-5 font-medium text-right">Marge %</th>
+                <th className="py-3 px-3 font-medium text-right">
+                  Marge livrée %
+                </th>
+                <th className="py-3 px-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#ECEAE4]">
@@ -174,7 +254,15 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       </div>
                       <div className="text-xs text-[#6B6B66]">
                         {item.domaine} · {item.region} · {item.color}
+                        {item.canal && item.canal !== 'Standard'
+                          ? ` · ${item.canal}`
+                          : ''}
                       </div>
+                      {item.notes && (
+                        <div className="text-[11px] text-[#B45309] mt-0.5">
+                          {item.notes}
+                        </div>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-xs text-[#6B6B66] whitespace-nowrap">
                       {item.vente}
@@ -182,7 +270,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     <td className="py-2.5 px-3 text-right">
                       <input
                         type="number"
-                        step="0.1"
+                        step="0.05"
                         min="0"
                         value={item.tarifAchatHT}
                         onFocus={(e) => e.target.select()}
@@ -210,6 +298,9 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                         }
                         className="w-20 px-2 py-1 text-right text-xs font-mono-num font-semibold bg-white border border-[#D8D6D0] rounded focus:outline-none focus:border-[#721C24]"
                       />
+                      <div className="text-[10px] font-mono-num text-[#6B6B66] mt-0.5">
+                        Base : {formatEUR(econ.tarifBaseConseilleTTC)}
+                      </div>
                     </td>
                     <td className="py-2.5 px-3 text-right font-mono-num text-xs text-[#6B6B66] whitespace-nowrap">
                       {item.benchTTC ? (
@@ -250,7 +341,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       {formatEUR(econ.margeEuro, true)}
                     </td>
                     <td
-                      className={`py-2.5 px-5 text-right font-mono-num text-xs ${
+                      className={`py-2.5 px-3 text-right font-mono-num text-xs ${
                         econ.margeEuro < 0
                           ? 'text-[#B91C1C] font-semibold'
                           : econ.margePct < 5
@@ -259,6 +350,30 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                       }`}
                     >
                       {formatPct(econ.margePct)}
+                    </td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingItem({ ...item })}
+                          className="p-1.5 text-[#6B6B66] hover:text-[#141413] hover:bg-[#ECEAE4] rounded"
+                          title="Modifier la fiche complète"
+                          aria-label={`Modifier ${item.cuvee}`}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        {onDeleteCatalogItem && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(item.id)}
+                            className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] hover:bg-[#FEF2F2] rounded"
+                            title="Supprimer la cuvée"
+                            aria-label={`Supprimer ${item.cuvee}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -298,7 +413,7 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     required
                     value={newDomaine}
                     onChange={(e) => setNewDomaine(e.target.value)}
-                    placeholder="Ex : Domaine Ganevat"
+                    placeholder="Ex : Domaine Tissot"
                     className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
                   />
                 </div>
@@ -324,12 +439,12 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                   required
                   value={newCuvee}
                   onChange={(e) => setNewCuvee(e.target.value)}
-                  placeholder="Ex : Les Chalasses Marnes Bleues 2022"
+                  placeholder="Ex : Sursis 2022"
                   className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[#6B6B66] mb-1">
                     Région
@@ -350,10 +465,25 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                     onChange={(e) => setNewColor(e.target.value as WineColor)}
                     className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
                   >
-                    <option value="Blanc">Blanc</option>
-                    <option value="Rouge">Rouge</option>
-                    <option value="Effervescent">Effervescent</option>
-                    <option value="Jaune / Oxydatif">Jaune / Oxydatif</option>
+                    {WINE_COLORS.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Canal
+                  </label>
+                  <select
+                    value={newCanal}
+                    onChange={(e) => setNewCanal(e.target.value as WineChannel)}
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  >
+                    <option value="Standard">Standard</option>
+                    <option value="Club">Club</option>
+                    <option value="WhatsApp">WhatsApp</option>
                   </select>
                 </div>
               </div>
@@ -361,11 +491,11 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
               <div className="grid grid-cols-4 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                    Achat HT (€)
+                    EXW HT (€)
                   </label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.05"
                     value={newAchatHT}
                     onChange={(e) => setNewAchatHT(e.target.value)}
                     className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
@@ -408,6 +538,19 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                  Note de dégustation publique (vitrine)
+                </label>
+                <input
+                  type="text"
+                  value={newTastingNotes}
+                  onChange={(e) => setNewTastingNotes(e.target.value)}
+                  placeholder="Optionnel : affiché sur la Carte des vins clients"
+                  className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                />
+              </div>
+
               <div className="flex justify-end gap-3 pt-3 border-t border-[#E5E4DF]">
                 <button
                   type="button"
@@ -424,6 +567,291 @@ export const CatalogView: React.FC<CatalogViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Full Edit Cuvee Modal */}
+      {editingItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-xl bg-white border border-[#E5E4DF] rounded-xl shadow-2xl overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E4DF]">
+              <h2 className="text-lg font-semibold text-[#141413]">
+                Modifier la fiche cuvée
+              </h2>
+              <button
+                onClick={() => setEditingItem(null)}
+                className="p-1.5 text-[#6B6B66] hover:text-[#141413] rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleSaveEdit} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Domaine *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingItem.domaine}
+                    onChange={(e) =>
+                      setEditingItem({ ...editingItem, domaine: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Vente / Campagne
+                  </label>
+                  <input
+                    type="text"
+                    value={editingItem.vente}
+                    onChange={(e) =>
+                      setEditingItem({ ...editingItem, vente: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                  Cuvée *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingItem.cuvee}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, cuvee: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Région
+                  </label>
+                  <input
+                    type="text"
+                    value={editingItem.region}
+                    onChange={(e) =>
+                      setEditingItem({ ...editingItem, region: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Couleur
+                  </label>
+                  <select
+                    value={editingItem.color}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        color: e.target.value as WineColor,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  >
+                    {WINE_COLORS.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Logistique override (€ HT)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.25"
+                    placeholder={`${settings.fraisLogistiqueAmont + settings.fraisLogistiqueAval}`}
+                    value={editingItem.fraisLogistiqueOverride ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        fraisLogistiqueOverride:
+                          e.target.value === ''
+                            ? undefined
+                            : Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    EXW HT
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={editingItem.tarifAchatHT}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        tarifAchatHT: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Prix LBG TTC
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editingItem.prixLbgTTC}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        prixLbgTTC: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Bench TTC
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editingItem.benchTTC ?? ''}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        benchTTC:
+                          e.target.value === ''
+                            ? null
+                            : Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono-num border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                    Source Bench
+                  </label>
+                  <input
+                    type="text"
+                    value={editingItem.benchSource}
+                    onChange={(e) =>
+                      setEditingItem({
+                        ...editingItem,
+                        benchSource: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                  Note publique de dégustation (visible clients)
+                </label>
+                <input
+                  type="text"
+                  value={editingItem.tastingNotes ?? ''}
+                  onChange={(e) =>
+                    setEditingItem({
+                      ...editingItem,
+                      tastingNotes: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+                  Note interne négoce (confidentielle — masquée aux clients)
+                </label>
+                <input
+                  type="text"
+                  value={editingItem.notes ?? ''}
+                  onChange={(e) =>
+                    setEditingItem({ ...editingItem, notes: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-[#D8D6D0] rounded-lg"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-[#E5E4DF]">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 text-sm text-[#6B6B66]"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg"
+                >
+                  Enregistrer les modifications
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDeleteId && onDeleteCatalogItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm bg-white border border-[#E5E4DF] rounded-xl shadow-2xl p-6 space-y-4">
+            <h3 className="text-base font-semibold text-[#141413]">
+              Supprimer cette cuvée du catalogue ?
+            </h3>
+            <p className="text-xs text-[#6B6B66]">
+              Cette action retire la référence de la grille tarifaire. Les
+              commandes existantes conservent leur libellé.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="px-3.5 py-1.5 text-xs font-medium text-[#6B6B66]"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteCatalogItem(confirmDeleteId);
+                  setConfirmDeleteId(null);
+                }}
+                className="px-4 py-1.5 text-xs font-medium text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+              >
+                Supprimer
+              </button>
+            </div>
           </div>
         </div>
       )}

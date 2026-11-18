@@ -54,40 +54,94 @@ export function formatDateFR(isoDate: string): string {
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
+export function getDefaultLogisticsPerBottle(settings: AppSettings): number {
+  const amont = settings.fraisLogistiqueAmont;
+  const aval = settings.fraisLogistiqueAval;
+  if (Number.isFinite(amont) && Number.isFinite(aval)) {
+    return amont + aval;
+  }
+  return settings.fraisLogistiqueParBouteille ?? 4.5;
+}
+
+export function getLogisticsCostHT(
+  item: WineCatalogItem,
+  settings: AppSettings
+): number {
+  if (item.fraisLogistiqueOverride !== undefined) {
+    return item.fraisLogistiqueOverride;
+  }
+  return getDefaultLogisticsPerBottle(settings);
+}
+
+/**
+ * Formule exacte du tableur LBG :
+ * Tarif LBG base TTC = ((EXW / (1 - tauxMarque)) + amont + aval) * (1 + TVA)
+ */
+export function computeRecommendedBasePriceTTC(
+  tarifAchatHT: number,
+  settings: AppSettings,
+  item?: WineCatalogItem
+): number {
+  if (tarifAchatHT <= 0) return 0;
+  const tauxMarque = Math.min(0.8, Math.max(0, settings.tauxMarqueCibleExw ?? 0.1));
+  const logistics = item
+    ? getLogisticsCostHT(item, settings)
+    : getDefaultLogisticsPerBottle(settings);
+  const htBase = tarifAchatHT / (1 - tauxMarque) + logistics;
+  return Number((htBase * (1 + settings.tvaRate)).toFixed(2));
+}
+
 export function computeBottleEconomics(
   item: WineCatalogItem,
   settings: AppSettings,
-  overrideSellPriceTTC?: number
+  overrideSellPriceTTC?: number,
+  overrideTvaRatePct?: number,
+  overrideBuyHT?: number
 ): {
   prixTTC: number;
   prixHT: number;
+  coutLogistiqueHT: number;
   coutTotalHT: number;
   margeEuro: number;
   margePct: number;
+  margeSurCaPct: number;
+  tarifBaseConseilleTTC: number;
   vsBenchPct: number | null;
 } {
   const prixTTC = overrideSellPriceTTC ?? item.prixLbgTTC;
-  const prixHT = prixTTC > 0 ? prixTTC / (1 + settings.tvaRate) : 0;
-  const frais =
-    item.fraisLogistiqueOverride !== undefined
-      ? item.fraisLogistiqueOverride
-      : settings.fraisLogistiqueParBouteille;
+  const tvaRate =
+    overrideTvaRatePct !== undefined
+      ? Math.max(0, overrideTvaRatePct) / 100
+      : settings.tvaRate;
+  const buyHT = overrideBuyHT !== undefined ? overrideBuyHT : item.tarifAchatHT;
+  const coutLogistiqueHT = getLogisticsCostHT(item, settings);
+  const coutTotalHT = buyHT + coutLogistiqueHT;
+  const tarifBaseConseilleTTC = computeRecommendedBasePriceTTC(
+    buyHT,
+    settings,
+    item
+  );
 
-  // For free personal tasting or 0€ off-system rows, margin is 0 unless priced
+  // Sorties cave perso / offertes à 0 € : coût suivi séparément, marge commerciale neutre (0)
   if (prixTTC <= 0) {
     return {
       prixTTC: 0,
       prixHT: 0,
-      coutTotalHT: item.tarifAchatHT,
-      margeEuro: -item.tarifAchatHT,
+      coutLogistiqueHT,
+      coutTotalHT: buyHT,
+      margeEuro: 0,
       margePct: 0,
+      margeSurCaPct: 0,
+      tarifBaseConseilleTTC,
       vsBenchPct: null,
     };
   }
 
-  const coutTotalHT = item.tarifAchatHT + frais;
+  const prixHT = prixTTC / (1 + tvaRate);
   const margeEuro = prixHT - coutTotalHT;
-  const margePct = prixHT > 0 ? (margeEuro / prixHT) * 100 : 0;
+  // Formule LBG : % marge nette livré = Marge nette / Coût de revient livré HT
+  const margePct = coutTotalHT > 0 ? (margeEuro / coutTotalHT) * 100 : 0;
+  const margeSurCaPct = prixHT > 0 ? (margeEuro / prixHT) * 100 : 0;
 
   let vsBenchPct: number | null = null;
   if (item.benchTTC && item.benchTTC > 0) {
@@ -97,10 +151,76 @@ export function computeBottleEconomics(
   return {
     prixTTC,
     prixHT,
+    coutLogistiqueHT,
     coutTotalHT,
     margeEuro,
     margePct,
+    margeSurCaPct,
+    tarifBaseConseilleTTC,
     vsBenchPct,
+  };
+}
+
+export function computeOrderLineEconomics(
+  order: OrderLine,
+  item: WineCatalogItem | undefined,
+  settings: AppSettings
+): {
+  caTTC: number;
+  caHT: number;
+  coutVinHT: number;
+  fraisLogistiqueHT: number;
+  margeEuroTotal: number;
+  margePct: number;
+  isPerso: boolean;
+} {
+  const isPerso = order.source === 'perso' || order.prixUnitaireTTC <= 0;
+  const tvaRate =
+    order.tvaRatePct !== undefined
+      ? Math.max(0, order.tvaRatePct) / 100
+      : settings.tvaRate;
+
+  if (isPerso) {
+    const unitBuy = item?.tarifAchatHT ?? 0;
+    return {
+      caTTC: 0,
+      caHT: 0,
+      coutVinHT: unitBuy * order.qte,
+      fraisLogistiqueHT: 0,
+      margeEuroTotal: 0,
+      margePct: 0,
+      isPerso: true,
+    };
+  }
+
+  const caTTC = order.prixUnitaireTTC * order.qte;
+  const caHT = caTTC / (1 + tvaRate);
+  if (!item) {
+    return {
+      caTTC,
+      caHT,
+      coutVinHT: 0,
+      fraisLogistiqueHT: 0,
+      margeEuroTotal: 0,
+      margePct: 0,
+      isPerso: false,
+    };
+  }
+
+  const econ = computeBottleEconomics(
+    item,
+    settings,
+    order.prixUnitaireTTC,
+    order.tvaRatePct
+  );
+  return {
+    caTTC,
+    caHT,
+    coutVinHT: item.tarifAchatHT * order.qte,
+    fraisLogistiqueHT: econ.coutLogistiqueHT * order.qte,
+    margeEuroTotal: econ.margeEuro * order.qte,
+    margePct: econ.margePct,
+    isPerso: false,
   };
 }
 
@@ -157,21 +277,27 @@ export function computeStockSummaries(
       remisClients -
       reserveClients;
 
+    const totalLotQty = itemLots.reduce((s, l) => s + l.qteCommandee, 0);
     const avgCost =
-      itemLots.length > 0
-        ? itemLots.reduce((s, l) => s + l.coutUnitaireHT * l.qteCommandee, 0) /
-          Math.max(
-            1,
-            itemLots.reduce((s, l) => s + l.qteCommandee, 0)
-          )
+      itemLots.length > 0 && totalLotQty > 0
+        ? itemLots.reduce(
+            (s, l) =>
+              s + l.coutUnitaireHT * l.qteCommandee + (l.shippingHT ?? 0),
+            0
+          ) / totalLotQty
         : item.tarifAchatHT;
 
     const bottlesHeldOrPaid = Math.max(
       0,
       totalRecuFournisseur +
         itemLots
-          .filter((l) => l.statutLot !== 'en_transit' || l.typeAchat === 'avance')
-          .reduce((s, l) => s + Math.max(0, l.qteCommandee - l.qteRecue), 0) -
+          .filter(
+            (l) => l.statutLot !== 'en_transit' || l.typeAchat === 'avance'
+          )
+          .reduce(
+            (s, l) => s + Math.max(0, l.qteCommandee - l.qteRecue),
+            0
+          ) -
         remisClients
     );
 
@@ -195,18 +321,42 @@ export function computeStockSummaries(
   });
 }
 
+function normalizedNameKey(nom: string, prenom: string): string {
+  return `${normalizeSearchText(nom)}_${normalizeSearchText(prenom)}`;
+}
+
+export function resolveCustomerKey(
+  order: Pick<OrderLine, 'emailClient' | 'nomClient' | 'prenomClient'>,
+  nameToEmail?: Map<string, string>
+): string {
+  const cleanEmail = order.emailClient?.trim().toLowerCase();
+  if (cleanEmail) return cleanEmail;
+  const nKey = normalizedNameKey(order.nomClient, order.prenomClient);
+  return nameToEmail?.get(nKey) ?? nKey;
+}
+
 export function computeCustomerSummaries(
   orders: OrderLine[],
   catalogMap: Map<string, WineCatalogItem>,
   settings: AppSettings
 ): CustomerSummary[] {
+  const nameToEmail = new Map<string, string>();
+  for (const order of orders) {
+    const cleanEmail = order.emailClient?.trim().toLowerCase();
+    if (cleanEmail) {
+      const nKey = normalizedNameKey(order.nomClient, order.prenomClient);
+      if (!nameToEmail.has(nKey)) {
+        nameToEmail.set(nKey, cleanEmail);
+      }
+    }
+  }
+
   const byClient = new Map<string, OrderLine[]>();
 
   for (const order of orders) {
-    const key = (
-      order.emailClient ||
-      `${order.nomClient.trim().toLowerCase()}_${order.prenomClient.trim().toLowerCase()}`
-    ).toLowerCase();
+    // Exclure les prélèvements personnels de dégustation du palmarès clients
+    if (order.source === 'perso') continue;
+    const key = resolveCustomerKey(order, nameToEmail);
     const arr = byClient.get(key) ?? [];
     arr.push(order);
     byClient.set(key, arr);
@@ -218,11 +368,12 @@ export function computeCustomerSummaries(
     const validOrders = clientOrders.filter((o) => o.statut !== 'annule');
     const cancelledOrders = clientOrders.filter((o) => o.statut === 'annule');
 
-    const refOrder = clientOrders[0];
+    const refOrder =
+      clientOrders.find((o) => o.emailClient?.trim()) ?? clientOrders[0];
     const orderRefs = new Set(validOrders.map((o) => o.refCommande));
 
     let caTotalTTC = 0;
-    let totalHT = 0;
+    let coutRevientTotalHT = 0;
     let margeTotaleEuro = 0;
     let totalBouteilles = 0;
     let bouteillesAttenteDomaine = 0;
@@ -232,13 +383,17 @@ export function computeCustomerSummaries(
 
     for (const o of validOrders) {
       totalBouteilles += o.qte;
-      const lineTTC = o.prixUnitaireTTC * o.qte;
-      caTotalTTC += lineTTC;
+      caTotalTTC += o.prixUnitaireTTC * o.qte;
 
       const cat = catalogMap.get(o.catalogId);
       if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        totalHT += econ.prixHT * o.qte;
+        const econ = computeBottleEconomics(
+          cat,
+          settings,
+          o.prixUnitaireTTC,
+          o.tvaRatePct
+        );
+        coutRevientTotalHT += econ.coutTotalHT * o.qte;
         margeTotaleEuro += econ.margeEuro * o.qte;
         domaineCount.set(
           cat.domaine,
@@ -256,10 +411,11 @@ export function computeCustomerSummaries(
     }
 
     const bouteillesAnnulees = cancelledOrders.reduce((s, o) => s + o.qte, 0);
-    const derniereDate = clientOrders
-      .map((o) => o.date)
-      .sort()
-      .reverse()[0] ?? '';
+    const derniereDate =
+      clientOrders
+        .map((o) => o.date)
+        .sort()
+        .reverse()[0] ?? '';
 
     const domainesFavoris = Array.from(domaineCount.entries())
       .sort((a, b) => b[1] - a[1])
@@ -275,7 +431,10 @@ export function computeCustomerSummaries(
       totalBouteilles,
       caTotalTTC,
       margeTotaleEuro,
-      margeMoyennePct: totalHT > 0 ? (margeTotaleEuro / totalHT) * 100 : 0,
+      margeMoyennePct:
+        coutRevientTotalHT > 0
+          ? (margeTotaleEuro / coutRevientTotalHT) * 100
+          : 0,
       panierMoyenTTC: orderRefs.size > 0 ? caTotalTTC / orderRefs.size : 0,
       bouteillesAttenteDomaine,
       bouteillesPretesLBG,
@@ -301,7 +460,9 @@ export function maskClientName(
   }
   const pInit = prenom ? prenom.charAt(0).toUpperCase() + '.' : '';
   const nInit = nom ? nom.charAt(0).toUpperCase() + '***' : '';
-  return index !== undefined ? `Client #${index + 1} (${pInit} ${nInit})` : `${pInit} ${nInit}`;
+  return index !== undefined
+    ? `Client #${index + 1} (${pInit} ${nInit})`
+    : `${pInit} ${nInit}`;
 }
 
 export function maskEmail(email: string, anonymize: boolean): string {

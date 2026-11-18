@@ -57,7 +57,7 @@ export const WineListView: React.FC<WineListViewProps> = ({
     if (!q) return catalog;
     return catalog.filter((w) => {
       const hay = normalizeSearchText(
-        `${w.domaine} ${w.cuvee} ${w.region} ${w.notes ?? ''}`
+        `${w.domaine} ${w.cuvee} ${w.region} ${w.tastingNotes ?? ''}`
       );
       return hay.includes(q);
     });
@@ -70,7 +70,7 @@ export const WineListView: React.FC<WineListViewProps> = ({
       if (colorFilter !== 'all' && w.color !== colorFilter) return false;
       if (q) {
         const hay = normalizeSearchText(
-          `${w.domaine} ${w.cuvee} ${w.region} ${w.notes ?? ''}`
+          `${w.domaine} ${w.cuvee} ${w.region} ${w.tastingNotes ?? ''}`
         );
         if (!hay.includes(q)) return false;
       }
@@ -129,8 +129,8 @@ export const WineListView: React.FC<WineListViewProps> = ({
         lines.push(
           `• ${item.domaine} — ${item.cuvee} : ${formatEUR(item.prixLbgTTC)}${stockText}${benchText}`
         );
-        if (item.notes) {
-          lines.push(`  ${item.notes}`);
+        if (item.tastingNotes) {
+          lines.push(`  ${item.tastingNotes}`);
         }
       });
       lines.push('');
@@ -384,14 +384,14 @@ export const WineListView: React.FC<WineListViewProps> = ({
                         <td className="py-3 px-4">
                           <input
                             type="text"
-                            value={item.notes ?? ''}
+                            value={item.tastingNotes ?? ''}
                             onChange={(e) =>
                               onUpdateCatalogItem({
                                 ...item,
-                                notes: e.target.value,
+                                tastingNotes: e.target.value,
                               })
                             }
-                            placeholder="Ajouter une note de dégustation..."
+                            placeholder="Ajouter une note de dégustation publique..."
                             className="w-full min-w-[220px] px-2.5 py-1.5 text-xs bg-[#FAF9F7] border border-[#D8D6D0] rounded focus:outline-none focus:border-[#721C24] focus:bg-white"
                           />
                         </td>
@@ -437,7 +437,18 @@ export const WineListView: React.FC<WineListViewProps> = ({
               </select>
 
               <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg max-w-full">
-                {(['all', 'Blanc', 'Rouge', 'Effervescent', 'Jaune / Oxydatif'] as const).map(
+                {(
+                  [
+                    'all',
+                    'Blanc',
+                    'Rouge',
+                    'Rosé',
+                    'Orange',
+                    'Effervescent',
+                    'Jaune / Oxydatif',
+                    'Doux / Liquoreux',
+                  ] as const
+                ).map(
                   (col) => (
                     <button
                       key={col}
@@ -470,6 +481,11 @@ export const WineListView: React.FC<WineListViewProps> = ({
           {/* Editorial Wine List Card */}
           <div className="bg-white border border-[#E5E4DF] rounded-xl px-5 py-7 sm:px-8 sm:py-10 md:px-12 max-w-4xl mx-auto">
             <div className="text-center border-b border-[#E5E4DF] pb-8 mb-8">
+              <img
+                src="/logo-lbg.png"
+                alt="Le Bon Grain d’Ivresse"
+                className="w-16 h-16 rounded-xl object-cover mx-auto mb-3 shadow-sm border border-[#E5E4DF]"
+              />
               <div className="text-xs tracking-widest text-[#721C24] font-medium uppercase">
                 Le Bon Grain d’Ivresse
               </div>
@@ -513,9 +529,9 @@ export const WineListView: React.FC<WineListViewProps> = ({
                                   · {item.color}
                                 </span>
                               </div>
-                              {item.notes && (
+                              {item.tastingNotes && (
                                 <p className="text-xs text-[#6B6B66]">
-                                  {item.notes}
+                                  {item.tastingNotes}
                                 </p>
                               )}
                             </div>

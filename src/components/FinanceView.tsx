@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, SlidersHorizontal, TrendingUp } from 'lucide-react';
 import { AppSettings, OrderLine, WineCatalogItem } from '../types/wine';
 import {
   computeBottleEconomics,
+  computeOrderLineEconomics,
   formatEUR,
   formatPct,
 } from '../utils/wineMath';
@@ -11,6 +12,7 @@ interface FinanceViewProps {
   catalog: WineCatalogItem[];
   orders: OrderLine[];
   settings: AppSettings;
+  initialFocus?: { vente?: string } | null;
   onUpdateSettings: (next: AppSettings) => void;
 }
 
@@ -20,10 +22,17 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
   catalog,
   orders,
   settings,
+  initialFocus,
   onUpdateSettings,
 }) => {
   const [mode, setMode] = useState<BreakdownMode>('campaign');
   const [campaignFilter, setCampaignFilter] = useState<string>('all');
+
+  useEffect(() => {
+    if (initialFocus?.vente) {
+      setCampaignFilter(initialFocus.vente);
+    }
+  }, [initialFocus]);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
@@ -50,30 +59,34 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
     let fraisLogistique = 0;
     let margeNette = 0;
     let totalBottles = 0;
+    let persoBottles = 0;
     let benchSumTTC = 0;
     let lbgVsBenchSumTTC = 0;
 
     for (const o of activeOrders) {
-      totalBottles += o.qte;
-      caTTC += o.prixUnitaireTTC * o.qte;
       const cat = catalogMap.get(o.catalogId);
-      if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        const frais =
-          cat.fraisLogistiqueOverride ?? settings.fraisLogistiqueParBouteille;
-        caHT += econ.prixHT * o.qte;
-        coutVinHT += cat.tarifAchatHT * o.qte;
-        fraisLogistique += frais * o.qte;
-        margeNette += econ.margeEuro * o.qte;
-        if (cat.benchTTC && cat.benchTTC > 0) {
-          benchSumTTC += cat.benchTTC * o.qte;
-          lbgVsBenchSumTTC += o.prixUnitaireTTC * o.qte;
-        }
+      const lineEcon = computeOrderLineEconomics(o, cat, settings);
+      if (lineEcon.isPerso) {
+        persoBottles += o.qte;
+        continue;
+      }
+
+      totalBottles += o.qte;
+      caTTC += lineEcon.caTTC;
+      caHT += lineEcon.caHT;
+      coutVinHT += lineEcon.coutVinHT;
+      fraisLogistique += lineEcon.fraisLogistiqueHT;
+      margeNette += lineEcon.margeEuroTotal;
+
+      if (cat?.benchTTC && cat.benchTTC > 0) {
+        benchSumTTC += cat.benchTTC * o.qte;
+        lbgVsBenchSumTTC += o.prixUnitaireTTC * o.qte;
       }
     }
 
     const tvaCollectee = caTTC - caHT;
-    const margePct = caHT > 0 ? (margeNette / caHT) * 100 : 0;
+    const totalCostHT = coutVinHT + fraisLogistique;
+    const margePct = totalCostHT > 0 ? (margeNette / totalCostHT) * 100 : 0;
     const avgDiscountVsBench =
       benchSumTTC > 0
         ? ((lbgVsBenchSumTTC - benchSumTTC) / benchSumTTC) * 100
@@ -81,6 +94,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
     return {
       totalBottles,
+      persoBottles,
       caTTC,
       tvaCollectee,
       caHT,
@@ -102,6 +116,7 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         caTTC: number;
         caHT: number;
         coutVinHT: number;
+        coutTotalHT: number;
         margeNette: number;
         benchDeltaSum: number;
         benchBaseSum: number;
@@ -110,6 +125,9 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
 
     for (const o of activeOrders) {
       const cat = catalogMap.get(o.catalogId);
+      const lineEcon = computeOrderLineEconomics(o, cat, settings);
+      if (lineEcon.isPerso) continue;
+
       let key = o.vente;
       let sublabel = '';
 
@@ -130,24 +148,22 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
         caTTC: 0,
         caHT: 0,
         coutVinHT: 0,
+        coutTotalHT: 0,
         margeNette: 0,
         benchDeltaSum: 0,
         benchBaseSum: 0,
       };
 
       existing.bottles += o.qte;
-      existing.caTTC += o.prixUnitaireTTC * o.qte;
+      existing.caTTC += lineEcon.caTTC;
+      existing.caHT += lineEcon.caHT;
+      existing.coutVinHT += lineEcon.coutVinHT;
+      existing.coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
+      existing.margeNette += lineEcon.margeEuroTotal;
 
-      if (cat) {
-        const econ = computeBottleEconomics(cat, settings, o.prixUnitaireTTC);
-        existing.caHT += econ.prixHT * o.qte;
-        existing.coutVinHT += cat.tarifAchatHT * o.qte;
-        existing.margeNette += econ.margeEuro * o.qte;
-        if (cat.benchTTC && cat.benchTTC > 0) {
-          existing.benchBaseSum += cat.benchTTC * o.qte;
-          existing.benchDeltaSum +=
-            (o.prixUnitaireTTC - cat.benchTTC) * o.qte;
-        }
+      if (cat?.benchTTC && cat.benchTTC > 0) {
+        existing.benchBaseSum += cat.benchTTC * o.qte;
+        existing.benchDeltaSum += (o.prixUnitaireTTC - cat.benchTTC) * o.qte;
       }
 
       map.set(key, existing);
@@ -212,26 +228,45 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
             </h2>
           </div>
 
-          {/* Interactive Assumption Control */}
-          <div className="flex flex-wrap items-center gap-4 text-xs text-[#6B6B66]">
-            <div className="flex items-center gap-2">
+          {/* Interactive Assumption Control (Amont + Aval + Marque EXW) */}
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[#6B6B66]">
+            <div className="flex items-center gap-1.5">
               <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Frais logistiques / btl par défaut :</span>
+              <span>Amont :</span>
+              <input
+                type="number"
+                step="0.25"
+                min="0"
+                max="10"
+                value={settings.fraisLogistiqueAmont}
+                onChange={(e) => {
+                  const amont = Math.max(0, Number(e.target.value));
+                  onUpdateSettings({
+                    ...settings,
+                    fraisLogistiqueAmont: amont,
+                    fraisLogistiqueParBouteille: amont + settings.fraisLogistiqueAval,
+                  });
+                }}
+                className="w-16 px-2 py-1 font-mono-num text-[#141413] bg-[#FAF9F7] border border-[#D8D6D0] rounded"
+              />
+              <span>€</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span>Aval :</span>
               <input
                 type="number"
                 step="0.25"
                 min="0"
                 max="15"
-                value={settings.fraisLogistiqueParBouteille}
-                onChange={(e) =>
+                value={settings.fraisLogistiqueAval}
+                onChange={(e) => {
+                  const aval = Math.max(0, Number(e.target.value));
                   onUpdateSettings({
                     ...settings,
-                    fraisLogistiqueParBouteille: Math.max(
-                      0,
-                      Number(e.target.value)
-                    ),
-                  })
-                }
+                    fraisLogistiqueAval: aval,
+                    fraisLogistiqueParBouteille: settings.fraisLogistiqueAmont + aval,
+                  });
+                }}
                 className="w-16 px-2 py-1 font-mono-num text-[#141413] bg-[#FAF9F7] border border-[#D8D6D0] rounded"
               />
               <span>€ HT</span>
@@ -366,7 +401,8 @@ export const FinanceView: React.FC<FinanceViewProps> = ({
               </thead>
               <tbody className="divide-y divide-[#ECEAE4]">
                 {groupedRows.map((r) => {
-                  const pct = r.caHT > 0 ? (r.margeNette / r.caHT) * 100 : 0;
+                  const pct =
+                    r.coutTotalHT > 0 ? (r.margeNette / r.coutTotalHT) * 100 : 0;
                   const benchPct =
                     r.benchBaseSum > 0
                       ? (r.benchDeltaSum / r.benchBaseSum) * 100

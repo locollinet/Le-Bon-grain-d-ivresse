@@ -1,34 +1,56 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Check,
   PackageCheck,
   PackagePlus,
   Search,
+  Trash2,
   Warehouse,
 } from 'lucide-react';
 import { StockSummaryRow, SupplierLot, WineCatalogItem } from '../types/wine';
 import { formatDateFR, formatEUR, normalizeSearchText } from '../utils/wineMath';
 
+export type StockFilter = 'all' | 'avance' | 'dispo' | 'attente' | 'deficit';
+
 interface StockViewProps {
   stockRows: StockSummaryRow[];
   lots: SupplierLot[];
   catalog: WineCatalogItem[];
+  initialFocus?: {
+    search?: string;
+    filter?: StockFilter;
+    subTab?: 'inventory' | 'lots';
+  } | null;
   onOpenNewLot: (preselectedCatalogId?: string) => void;
-  onReceiveLot: (lotId: string, alsoUpdateOrders: boolean) => void;
+  onReceiveLot: (
+    lotId: string,
+    alsoUpdateOrders: boolean,
+    qtyReceivedTotal?: number
+  ) => void;
+  onDeleteLot?: (lotId: string) => void;
 }
-
-type StockFilter = 'all' | 'avance' | 'dispo' | 'attente' | 'deficit';
 
 export const StockView: React.FC<StockViewProps> = ({
   stockRows,
   lots,
   catalog,
+  initialFocus,
   onOpenNewLot,
   onReceiveLot,
+  onDeleteLot,
 }) => {
   const [subTab, setSubTab] = useState<'inventory' | 'lots'>('inventory');
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<StockFilter>('all');
+  const [partialQtyDraft, setPartialQtyDraft] = useState<Record<string, number>>({});
+  const [confirmDeleteLotId, setConfirmDeleteLotId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialFocus) return;
+    if (initialFocus.search !== undefined) setSearch(initialFocus.search);
+    if (initialFocus.filter !== undefined) setFilter(initialFocus.filter);
+    if (initialFocus.subTab !== undefined) setSubTab(initialFocus.subTab);
+  }, [initialFocus]);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
@@ -400,26 +422,106 @@ export const StockView: React.FC<StockViewProps> = ({
                         {formatEUR(lot.coutUnitaireHT * lot.qteCommandee)}
                       </td>
                       <td className="py-3 px-5 text-right whitespace-nowrap">
-                        {isReceived ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-medium text-[#15803D]">
-                            <Check className="w-3.5 h-3.5" /> Reçu en cave
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => onReceiveLot(lot.id, true)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#15803D] hover:bg-[#166534] rounded-md transition-colors"
-                            title="Passe le lot en reçu ET met à jour les commandes clients en attente sur cette cuvée"
-                          >
-                            <PackageCheck className="w-3.5 h-3.5" />
-                            <span>Réceptionner en cave</span>
-                          </button>
-                        )}
+                        <div className="inline-flex items-center justify-end gap-2">
+                          {isReceived ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#15803D]">
+                              <Check className="w-3.5 h-3.5" /> Reçu en cave
+                            </span>
+                          ) : (
+                            <div className="inline-flex items-center gap-1.5">
+                              <input
+                                type="number"
+                                min={Math.max(1, lot.qteRecue)}
+                                max={lot.qteCommandee}
+                                value={
+                                  partialQtyDraft[lot.id] ?? lot.qteCommandee
+                                }
+                                onChange={(e) =>
+                                  setPartialQtyDraft((prev) => ({
+                                    ...prev,
+                                    [lot.id]: Math.max(
+                                      lot.qteRecue,
+                                      Math.min(
+                                        lot.qteCommandee,
+                                        Number(e.target.value)
+                                      )
+                                    ),
+                                  }))
+                                }
+                                aria-label="Quantité reçue"
+                                className="w-14 px-2 py-1 text-xs text-right font-mono-num border border-[#D8D6D0] rounded"
+                              />
+                              <button
+                                onClick={() =>
+                                  onReceiveLot(
+                                    lot.id,
+                                    true,
+                                    partialQtyDraft[lot.id] ?? lot.qteCommandee
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#15803D] hover:bg-[#166534] rounded-md transition-colors"
+                                title="Enregistre la réception en cave ET attribue les bouteilles aux commandes clients en attente (dans la limite du disponible)"
+                              >
+                                <PackageCheck className="w-3.5 h-3.5" />
+                                <span>Réceptionner</span>
+                              </button>
+                            </div>
+                          )}
+                          {onDeleteLot && (
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteLotId(lot.id)}
+                              className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] rounded-md transition-colors"
+                              title="Supprimer ce lot"
+                              aria-label="Supprimer ce lot"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {confirmDeleteLotId && onDeleteLot && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-sm bg-white border border-[#E5E4DF] rounded-xl shadow-2xl p-5 space-y-4">
+            <h3 className="text-base font-semibold text-[#141413]">
+              Supprimer ce lot fournisseur ?
+            </h3>
+            <p className="text-xs text-[#6B6B66]">
+              Cette action mettra immédiatement à jour votre stock physique, vos
+              achats en transit et votre journal des achats TVA.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteLotId(null)}
+                className="px-3.5 py-1.5 text-xs font-medium text-[#6B6B66]"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteLot(confirmDeleteLotId);
+                  setConfirmDeleteLotId(null);
+                }}
+                className="px-4 py-1.5 text-xs font-medium text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+              >
+                Supprimer
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -47,6 +47,7 @@ interface InvoiceAIModalProps {
   isOpen: boolean;
   onClose: () => void;
   catalog: WineCatalogItem[];
+  existingInvoiceRefs?: Set<string>;
   onApplyAchat: (
     lots: SupplierLot[],
     newCatalogItems: WineCatalogItem[],
@@ -65,13 +66,13 @@ Date : 14/11/2026
 Client : LE BON GRAIN D'IVRESSE (Romain Becker)
 
 Désignation                                  Qté    PU HT      Total HT
-Marsannay Clos du Roy 2023                    12    37,00 €    444,00 €
-Marsannay Blanc 2023                           6    28,50 €    171,00 €
+Marsannay rouge 2023                          12    21,30 €    255,60 €
+Bourgogne Méchalots blanc 2023                 6    18,60 €    111,60 €
 Frais de transport France                      1    32,00 €     32,00 €
 
-Total HT : 647,00 €
-TVA 20,0 % : 129,40 €
-Total TTC à payer : 776,40 €`;
+Total HT : 399,20 €
+TVA 20,0 % : 79,84 €
+Total TTC à payer : 479,04 €`;
 
 const SAMPLE_SALE_INVOICE = `LE BON GRAIN D'IVRESSE — Romain Becker
 FACTURE CLIENT N° LBG-2026-019
@@ -90,6 +91,7 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
   isOpen,
   onClose,
   catalog,
+  existingInvoiceRefs,
   onApplyAchat,
   onApplyVente,
 }) => {
@@ -160,10 +162,20 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
         }),
       });
 
-      const data = await response.json();
+      const rawBody = await response.text();
+      let data: Record<string, unknown> = {};
+      try {
+        data = rawBody ? (JSON.parse(rawBody) as Record<string, unknown>) : {};
+      } catch {
+        throw new Error(
+          `Réponse serveur invalide (HTTP ${response.status}). Vérifiez la connexion ou réessayez.`
+        );
+      }
+
       if (!response.ok) {
         throw new Error(
-          data.error || "Échec de l'analyse de la facture par le serveur."
+          (typeof data.error === 'string' && data.error) ||
+            "Échec de l'analyse de la facture par le serveur."
         );
       }
 
@@ -187,29 +199,33 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
         return partial?.id ?? '';
       };
 
-      const tvaRatePct = Number(data.tvaRatePct ?? 20);
+      const parsed = data as Partial<ParsedInvoiceResult>;
+      const tvaRatePct = Number(parsed.tvaRatePct ?? 20);
       const tvaFactor = 1 + tvaRatePct / 100;
 
       const normalized: ParsedInvoiceResult = {
-        direction: data.direction === 'vente' ? 'vente' : 'achat',
-        directionReason: data.directionReason || '',
-        counterpartyName: data.counterpartyName || '',
-        counterpartyEmail: data.counterpartyEmail || '',
-        invoiceNumber: data.invoiceNumber || `FAC-${Date.now().toString().slice(-5)}`,
+        direction: parsed.direction === 'vente' ? 'vente' : 'achat',
+        directionReason: String(parsed.directionReason || ''),
+        counterpartyName: String(parsed.counterpartyName || ''),
+        counterpartyEmail: String(parsed.counterpartyEmail || ''),
+        invoiceNumber:
+          String(parsed.invoiceNumber || '') ||
+          `FAC-${Date.now().toString().slice(-5)}`,
         invoiceDate:
-          data.invoiceDate || new Date().toISOString().slice(0, 10),
+          String(parsed.invoiceDate || '') ||
+          new Date().toISOString().slice(0, 10),
         tvaRatePct,
-        shippingTotalHT: Number(data.shippingTotalHT ?? 0),
-        totalHT: Number(data.totalHT ?? 0),
-        totalTVA: Number(data.totalTVA ?? 0),
-        totalTTC: Number(data.totalTTC ?? 0),
-        lines: Array.isArray(data.lines)
-          ? data.lines.map((l: Partial<ParsedInvoiceLine>) => {
+        shippingTotalHT: Number(parsed.shippingTotalHT ?? 0),
+        totalHT: Number(parsed.totalHT ?? 0),
+        totalTVA: Number(parsed.totalTVA ?? 0),
+        totalTTC: Number(parsed.totalTTC ?? 0),
+        lines: Array.isArray(parsed.lines)
+          ? parsed.lines.map((l: Partial<ParsedInvoiceLine>) => {
               const rawMatched = l.matchedCatalogId || '';
               const validMatched = catalog.some((c) => c.id === rawMatched)
                 ? rawMatched
                 : findCatalogFallback(
-                    l.domaine || data.counterpartyName || '',
+                    l.domaine || String(parsed.counterpartyName || ''),
                     l.cuvee || ''
                   );
               const ht = Number(l.unitPriceHT ?? 0);
@@ -220,7 +236,8 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
                 ttc > 0 ? ttc : ht > 0 ? Number((ht * tvaFactor).toFixed(2)) : 0;
               return {
                 matchedCatalogId: validMatched,
-                domaine: l.domaine || data.counterpartyName || 'Domaine',
+                domaine:
+                  l.domaine || String(parsed.counterpartyName || '') || 'Domaine',
                 cuvee: l.cuvee || 'Cuvée sans libellé',
                 quantity: Math.max(1, Number(l.quantity ?? 1)),
                 unitPriceHT,
@@ -322,11 +339,11 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
         tarifAchatHT:
           result.direction === 'achat'
             ? line.unitPriceHT
-            : Number((line.unitPriceHT * 0.75).toFixed(2)),
+            : Math.max(0, Number((((line.unitPriceTTC / 1.2) - 4.5) * 0.9).toFixed(2))),
         prixLbgTTC:
           result.direction === 'vente'
             ? line.unitPriceTTC
-            : Number((line.unitPriceHT * 1.45 * 1.2).toFixed(2)),
+            : Math.round(((line.unitPriceHT / 0.9) + 4.5) * 1.2),
         benchTTC: null,
         benchSource: 'À renseigner',
         dispoPublic: false,
@@ -596,6 +613,16 @@ export const InvoiceAIModal: React.FC<InvoiceAIModalProps> = ({
           {/* Step 2: Explicit Editable Verification Panel */}
           {result && (
             <div className="space-y-4 pt-2 border-t border-[#E5E4DF]">
+              {existingInvoiceRefs?.has(result.invoiceNumber.trim()) && (
+                <div className="p-3 text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
+                  Attention : la référence facture{' '}
+                  <span className="font-mono-num font-semibold">
+                    {result.invoiceNumber}
+                  </span>{' '}
+                  est déjà enregistrée dans votre historique. Vérifiez qu’il ne
+                  s’agit pas d’un doublon avant de valider.
+                </div>
+              )}
               {/* Crystal-clear Action Banner (Achat vs Vente) */}
               <div
                 className={`p-4 rounded-xl border flex flex-col md:flex-row md:items-center justify-between gap-4 ${

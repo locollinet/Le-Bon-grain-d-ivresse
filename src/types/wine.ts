@@ -1,19 +1,35 @@
-export type WineColor = 'Blanc' | 'Rouge' | 'Effervescent' | 'Jaune / Oxydatif';
+export type WineColor =
+  | 'Blanc'
+  | 'Rouge'
+  | 'Rosé'
+  | 'Orange'
+  | 'Effervescent'
+  | 'Jaune / Oxydatif'
+  | 'Doux / Liquoreux';
+
+export type WineChannel = 'Standard' | 'Club' | 'WhatsApp';
 
 export interface WineCatalogItem {
   id: string;
   vente: string;
+  dateVente?: string;
+  canal?: WineChannel;
   domaine: string;
   cuvee: string;
   reference: string;
   region: string;
   color: WineColor;
+  /** Prix d'achat domaine HT EXW (hors transport amont/aval) */
   tarifAchatHT: number;
   prixLbgTTC: number;
   benchTTC: number | null;
   benchSource: string;
+  /** Coût logistique HT total spécifique par bouteille (si différent de amont + aval) */
   fraisLogistiqueOverride?: number;
   dispoPublic: boolean;
+  /** Note publique de dégustation affichée sur la Carte des vins & WhatsApp clients */
+  tastingNotes?: string;
+  /** Note interne confidentielle (alertes marge, suivi achat) — jamais exposée aux clients */
   notes?: string;
 }
 
@@ -59,14 +75,17 @@ export interface OrderLine {
   qte: number;
   statut: OrderStatus;
   source: OrderSource;
+  codePromo?: string;
+  discountTTC?: number;
   notes?: string;
 }
 
 export type CampaignStatus =
+  | 'Envisagée'
   | 'Planifiée'
   | 'En cours'
-  | 'Clôturée'
   | 'En attente domaine'
+  | 'Clôturée'
   | 'Livrée';
 
 export interface SalesCampaign {
@@ -75,18 +94,27 @@ export interface SalesCampaign {
   domaine: string;
   dateOuverture: string;
   canal: 'HelloAsso' | 'Club' | 'WhatsApp' | 'Vente directe';
+  contact?: string;
   statut: CampaignStatus;
   notes?: string;
 }
 
 export interface AppSettings {
   tvaRate: number;
+  fraisLogistiqueAmont: number;
+  fraisLogistiqueAval: number;
+  /** Total amont + aval par défaut (€ HT / bouteille) */
   fraisLogistiqueParBouteille: number;
+  /** Taux de marque cible sur prix EXW (ex: 0.10 = 10 %) */
+  tauxMarqueCibleExw: number;
   anonymizeClients: boolean;
   showcaseTitle?: string;
   showcaseSubtitle?: string;
   showcaseShowStock?: boolean;
   showcaseShowBenchmark?: boolean;
+  companyAddress?: string;
+  companySiret?: string;
+  companyLegalLine?: string;
 }
 
 export interface StockSummaryRow {

@@ -65,16 +65,20 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
   const stats = useMemo(() => {
     const valid = parsedRows.filter((r) => r.mappedStatus !== 'annule');
     const cancelled = parsedRows.filter((r) => r.mappedStatus === 'annule');
-    const duplicates = valid.filter((r) => existingRefs.has(r.refCommande));
-    const importableValid = skipDuplicates
-      ? valid.filter((r) => !existingRefs.has(r.refCommande))
-      : valid;
+    const duplicates = parsedRows.filter((r) => existingRefs.has(r.refCommande));
+    const importableRows = skipDuplicates
+      ? parsedRows.filter((r) => !existingRefs.has(r.refCommande))
+      : parsedRows;
+    const importableValid = importableRows.filter(
+      (r) => r.mappedStatus !== 'annule'
+    );
     const unmatched = importableValid.filter((r) => !r.matchedCatalog);
     const totalTTC = importableValid.reduce((s, r) => s + r.montantTTC, 0);
     return {
       totalRows: parsedRows.length,
       validCount: valid.length,
       importableCount: importableValid.length,
+      importableAllCount: importableRows.length,
       cancelledCount: cancelled.length,
       unmatchedCount: unmatched.length,
       duplicateCount: duplicates.length,
@@ -112,10 +116,7 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
 
   const handleConfirmImport = () => {
     const filteredRows = skipDuplicates
-      ? parsedRows.filter(
-          (r) =>
-            r.mappedStatus === 'annule' || !existingRefs.has(r.refCommande)
-        )
+      ? parsedRows.filter((r) => !existingRefs.has(r.refCommande))
       : parsedRows;
 
     // Auto-create lightweight catalog entries for unmatched cuvées so nothing gets lost
@@ -127,6 +128,10 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
       const key = row.cleanCuveeName.toLowerCase();
       let cat = createdByCleanName.get(key);
       if (!cat) {
+        const estimatedExw = Math.max(
+          0,
+          Number((((row.montantTTC / 1.2) - 4.5) * 0.9).toFixed(2))
+        );
         cat = {
           id: `cat_auto_${Date.now()}_${createdCatalog.length}`,
           vente: defaultVente,
@@ -135,12 +140,13 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
           reference: row.cleanCuveeName,
           region: 'À classer',
           color: 'Blanc',
-          tarifAchatHT: Number(((row.montantTTC / 1.2) * 0.78).toFixed(2)),
+          tarifAchatHT: estimatedExw,
           prixLbgTTC: row.montantTTC,
           benchTTC: null,
           benchSource: 'À renseigner',
-          dispoPublic: true,
-          notes: "Créée automatiquement lors de l'import HelloAsso (vérifier le tarif d'achat HT).",
+          dispoPublic: false,
+          notes:
+            "Créée automatiquement lors de l'import HelloAsso (vérifier EXW HT, domaine et région).",
         };
         createdCatalog.push(cat);
         createdByCleanName.set(key, cat);
@@ -468,7 +474,7 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
           </button>
           <div className="flex items-center gap-3">
             {parsedRows.length > 0 &&
-              stats.importableCount === 0 &&
+              stats.importableAllCount === 0 &&
               stats.duplicateCount > 0 && (
                 <span className="text-xs text-[#6B6B66]">
                   Toutes ces commandes sont déjà enregistrées.
@@ -476,7 +482,7 @@ export const ImportHelloAssoModal: React.FC<ImportHelloAssoModalProps> = ({
               )}
             <button
               type="button"
-              disabled={parsedRows.length === 0 || stats.importableCount === 0}
+              disabled={parsedRows.length === 0 || stats.importableAllCount === 0}
               onClick={handleConfirmImport}
               className="px-5 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] disabled:opacity-40 disabled:cursor-not-allowed rounded-lg transition-colors whitespace-nowrap"
             >

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Download,
   FileCheck2,
@@ -20,6 +20,7 @@ interface AccountingViewProps {
   lots: SupplierLot[];
   orders: OrderLine[];
   settings: AppSettings;
+  initialFocus?: { periodMonth?: string } | null;
   onAssignInvoiceNumbers: (orderIds: string[], invoiceNumber: string) => void;
   onOpenInvoiceAI: () => void;
 }
@@ -30,6 +31,7 @@ interface GroupedClientInvoice {
   date: string;
   vente: string;
   clientName: string;
+  displayClientName: string;
   clientEmail: string;
   lines: OrderLine[];
   totalTTC: number;
@@ -42,6 +44,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   lots,
   orders,
   settings,
+  initialFocus,
   onAssignInvoiceNumbers,
   onOpenInvoiceAI,
 }) => {
@@ -49,6 +52,13 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   const [periodMonth, setPeriodMonth] = useState<string>('all');
   const [previewInvoice, setPreviewInvoice] =
     useState<GroupedClientInvoice | null>(null);
+
+  useEffect(() => {
+    if (initialFocus?.periodMonth) {
+      setPeriodMonth(initialFocus.periodMonth);
+      setSubTab('factures');
+    }
+  }, [initialFocus]);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
@@ -70,6 +80,8 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
     return orders.filter(
       (o) =>
         o.statut !== 'annule' &&
+        o.source !== 'perso' &&
+        o.prixUnitaireTTC > 0 &&
         (periodMonth === 'all' || o.date.startsWith(periodMonth))
     );
   }, [orders, periodMonth]);
@@ -146,7 +158,8 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
           invoiceNumber: o.invoiceNumber || null,
           date: o.date,
           vente: o.vente,
-          clientName: maskClientName(
+          clientName: `${o.prenomClient} ${o.nomClient}`.trim(),
+          displayClientName: maskClientName(
             o.prenomClient,
             o.nomClient,
             settings.anonymizeClients
@@ -166,6 +179,9 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
   }, [filteredValidOrders, settings.tvaRate, settings.anonymizeClients]);
 
   const handleIssueInvoice = (inv: GroupedClientInvoice) => {
+    const year = /^\d{4}/.test(inv.date)
+      ? inv.date.slice(0, 4)
+      : String(new Date().getFullYear());
     let maxSeq = 0;
     for (const o of orders) {
       if (!o.invoiceNumber) continue;
@@ -175,7 +191,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
         if (n > maxSeq) maxSeq = n;
       }
     }
-    const nextNum = `FA-2026-${String(maxSeq + 1).padStart(4, '0')}`;
+    const nextNum = `FA-${year}-${String(maxSeq + 1).padStart(4, '0')}`;
     onAssignInvoiceNumbers(
       inv.lines.map((l) => l.id),
       nextNum
@@ -431,7 +447,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4 font-medium text-[#141413] whitespace-nowrap">
-                      {inv.clientName}
+                      {inv.displayClientName}
                     </td>
                     <td className="py-3 px-4 text-xs text-[#6B6B66]">
                       {inv.vente}
@@ -572,14 +588,28 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
 
             <div className="p-8 space-y-6 text-sm text-[#141413]">
               <div className="flex justify-between items-start border-b border-[#E5E4DF] pb-6">
-                <div>
-                  <div className="font-display text-2xl font-semibold">
-                    Le Bon Grain d’Ivresse
-                  </div>
-                  <div className="text-xs text-[#6B6B66] mt-1 space-y-0.5">
-                    <div>Romain Becker — Négoce &amp; Sélection de Vins</div>
-                    <div>www.lebongraindelivresse.com</div>
-                    <div>romain.becker@live.fr · 06 86 53 19 07</div>
+                <div className="flex items-start gap-4">
+                  <img
+                    src="/logo-lbg.png"
+                    alt="Le Bon Grain d’Ivresse"
+                    className="w-14 h-14 rounded-lg object-cover border border-[#E5E4DF] shrink-0"
+                  />
+                  <div>
+                    <div className="font-display text-2xl font-semibold">
+                      Le Bon Grain d’Ivresse
+                    </div>
+                    <div className="text-xs text-[#6B6B66] mt-1 space-y-0.5">
+                      <div>Romain Becker — Négoce &amp; Sélection de Vins</div>
+                      <div>www.lebongraindelivresse.com</div>
+                      <div>romain.becker@live.fr · 06 86 53 19 07</div>
+                      {(settings.companyAddress || settings.companySiret) && (
+                        <div>
+                          {[settings.companyAddress, settings.companySiret]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="text-right">
@@ -652,7 +682,14 @@ export const AccountingView: React.FC<AccountingViewProps> = ({
                   </div>
                   <div className="flex justify-between text-[#6B6B66]">
                     <span>
-                      TVA ({Math.round(settings.tvaRate * 100)} %)
+                      TVA (
+                      {previewInvoice.totalHT > 0
+                        ? Math.round(
+                            (previewInvoice.totalTVA / previewInvoice.totalHT) *
+                              100
+                          )
+                        : Math.round(settings.tvaRate * 100)}{' '}
+                      %)
                     </span>
                     <span className="font-mono-num">
                       {formatEUR(previewInvoice.totalTVA)}

@@ -2,12 +2,14 @@ import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { LotStatus, LotType, SupplierLot, WineCatalogItem } from '../types/wine';
 import { formatEUR } from '../utils/wineMath';
+import type { SupplierLotPrefill } from '../modules/assistant/types';
 
 interface NewSupplierLotModalProps {
   isOpen: boolean;
   onClose: () => void;
   catalog: WineCatalogItem[];
   preselectedCatalogId?: string;
+  prefill?: SupplierLotPrefill | null;
   onAddLot: (lot: SupplierLot) => void;
 }
 
@@ -16,6 +18,7 @@ export const NewSupplierLotModal: React.FC<NewSupplierLotModalProps> = ({
   onClose,
   catalog,
   preselectedCatalogId,
+  prefill,
   onAddLot,
 }) => {
   const [catalogId, setCatalogId] = useState(
@@ -33,13 +36,23 @@ export const NewSupplierLotModal: React.FC<NewSupplierLotModalProps> = ({
 
   React.useEffect(() => {
     if (!isOpen) return;
-    if (preselectedCatalogId) {
-      setCatalogId(preselectedCatalogId);
-    } else if (catalog[0]?.id) {
-      setCatalogId(catalog[0].id);
-    }
-    setCoutUnitaireHT('');
-  }, [isOpen, preselectedCatalogId, catalog]);
+    setCatalogId(
+      prefill?.catalogId || preselectedCatalogId || catalog[0]?.id || ''
+    );
+    setTypeAchat(prefill?.typeAchat ?? 'avance');
+    setQteCommandee(
+      prefill?.qteCommandee ? Math.max(1, prefill.qteCommandee) : 6
+    );
+    setStatutLot(prefill?.statutLot ?? 'recu_cave');
+    setCoutUnitaireHT(
+      prefill?.coutUnitaireHT !== undefined
+        ? String(prefill.coutUnitaireHT)
+        : ''
+    );
+    setDateAchat(new Date().toISOString().slice(0, 10));
+    setReferenceFacture(prefill?.referenceFacture ?? '');
+    setNotes(prefill?.notes ?? '');
+  }, [isOpen, preselectedCatalogId, prefill, catalog]);
 
   if (!isOpen) return null;
 
