@@ -184,3 +184,14 @@ export interface ChatMessage {
   vote?: 'up' | 'down';
   error?: boolean;
 }
+
+export interface AssistantThread {
+  id: string;
+  ownerUid: string;
+  title: string;
+  messages: ChatMessage[];
+  history: AssistantContent[];
+  messageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}

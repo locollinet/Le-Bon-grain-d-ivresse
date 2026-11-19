@@ -455,6 +455,26 @@ service cloud.firestore {
         && data.updatedAt is string && data.updatedAt.size() <= 40;
     }
 
+    function isValidAssistantThread(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'ownerUid', 'title', 'messagesJson', 'historyJson',
+          'messageCount', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'ownerUid', 'title', 'messagesJson', 'historyJson',
+          'messageCount', 'createdAt', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.messagesJson is string && data.messagesJson.size() <= 200000
+        && data.historyJson is string && data.historyJson.size() <= 200000
+        && data.messageCount is number && data.messageCount >= 0 && data.messageCount <= 200
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
     // --- Workspace Root & Subcollections ---
     match /workspaces/{workspaceId} {
       allow get: if isValidId(workspaceId) && isWorkspaceMember(workspaceId);
@@ -695,6 +715,29 @@ service cloud.firestore {
           && incoming().createdByUid == existing().createdByUid
           && incoming().createdAt == existing().createdAt;
         allow delete: if isValidId(workspaceId) && isValidId(expenseId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /assistantThreads/{threadId} {
+        allow get: if isValidId(workspaceId) && isValidId(threadId)
+          && isWorkspaceMember(workspaceId)
+          && existing().ownerUid == request.auth.uid;
+        allow list: if isWorkspaceMember(workspaceId)
+          && existing().ownerUid == request.auth.uid;
+        allow create: if isValidId(workspaceId) && isValidId(threadId)
+          && isWorkspaceMember(workspaceId)
+          && isValidAssistantThread(incoming(), workspaceId, threadId)
+          && incoming().ownerUid == request.auth.uid;
+        allow update: if isValidId(workspaceId) && isValidId(threadId)
+          && isValidAssistantThread(incoming(), workspaceId, threadId)
+          && isWorkspaceMember(workspaceId)
+          && existing().ownerUid == request.auth.uid
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().ownerUid == existing().ownerUid
+          && incoming().createdAt == existing().createdAt;
+        allow delete: if isValidId(workspaceId) && isValidId(threadId)
+          && isWorkspaceMember(workspaceId)
+          && existing().ownerUid == request.auth.uid;
       }
     }
   }

@@ -4,16 +4,19 @@ import {
   BookOpen,
   Check,
   Copy,
+  History,
   Loader2,
-  RotateCcw,
+  MessageSquarePlus,
   Send,
   Sparkles,
   ThumbsDown,
   ThumbsUp,
+  Trash2,
   WifiOff,
   X,
 } from 'lucide-react';
 import type { ActiveTab } from '../../types/wine';
+import { formatDateFR } from '../../utils/wineMath';
 import { askAssistant, sendAssistantFeedback } from './client';
 import {
   getContextualSuggestions,
@@ -24,6 +27,7 @@ import type { AssistantToolContext } from './tools';
 import type {
   AssistantAction,
   AssistantContent,
+  AssistantThread,
   ChatMessage,
   MetricTone,
   ResultCard,
@@ -35,6 +39,11 @@ interface AssistantPanelProps {
   ctx: AssistantToolContext;
   tabLabel: string;
   onExecuteAction: (action: AssistantAction) => void;
+  threads?: AssistantThread[];
+  currentUserUid?: string;
+  userDisplayName?: string;
+  onSaveThread?: (thread: AssistantThread) => Promise<void>;
+  onDeleteThread?: (threadId: string) => Promise<void>;
 }
 
 const TONE_TEXT_CLASS: Record<MetricTone, string> = {
@@ -72,13 +81,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
   ctx,
   tabLabel,
   onExecuteAction,
+  threads = [],
+  currentUserUid,
+  userDisplayName,
+  onSaveThread,
+  onDeleteThread,
 }) => {
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
+  const [activeThreadCreatedAt, setActiveThreadCreatedAt] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [history, setHistory] = useState<AssistantContent[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [stepLabel, setStepLabel] = useState('');
   const [showHelp, setShowHelp] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [isOnline, setIsOnline] = useState<boolean>(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
@@ -128,10 +145,65 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
     : HELP_ARTICLES.slice(0, 4);
 
   const handleReset = () => {
+    setActiveThreadId(null);
+    setActiveThreadCreatedAt(null);
     setMessages([]);
     setHistory([]);
     setInput('');
     setStepLabel('');
+    setShowHistory(false);
+    setShowHelp(false);
+  };
+
+  const handleLoadThread = (thread: AssistantThread) => {
+    setActiveThreadId(thread.id);
+    setActiveThreadCreatedAt(thread.createdAt);
+    setMessages(thread.messages);
+    setHistory(thread.history);
+    setShowHistory(false);
+    setShowHelp(false);
+  };
+
+  const handleDeleteSavedThread = (e: React.MouseEvent, threadId: string) => {
+    e.stopPropagation();
+    if (threadId === activeThreadId) {
+      handleReset();
+    }
+    if (onDeleteThread) {
+      void onDeleteThread(threadId);
+    }
+  };
+
+  const persistThread = (
+    nextMessages: ChatMessage[],
+    nextHistory: AssistantContent[],
+    existingId: string | null,
+    existingCreatedAt: string | null
+  ) => {
+    if (!onSaveThread || !currentUserUid || nextMessages.length === 0) return;
+    const now = new Date().toISOString();
+    const id =
+      existingId ??
+      `thr_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const createdAt = existingCreatedAt ?? now;
+    const firstUserMsg = nextMessages.find((m) => m.role === 'user')?.text ?? 'Conversation';
+    const title = firstUserMsg.trim().slice(0, 120) || 'Conversation';
+
+    if (!existingId) {
+      setActiveThreadId(id);
+      setActiveThreadCreatedAt(createdAt);
+    }
+
+    void onSaveThread({
+      id,
+      ownerUid: currentUserUid,
+      title,
+      messages: nextMessages,
+      history: nextHistory,
+      messageCount: nextMessages.length,
+      createdAt,
+      updatedAt: now,
+    });
   };
 
   const handleActionClick = (action: AssistantAction, actionKey: string) => {
@@ -151,9 +223,11 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
       role: 'user',
       text: q,
     };
-    setMessages((prev) => [...prev, userMsg]);
+    const withUser = [...messages, userMsg];
+    setMessages(withUser);
     if (!promptText) setInput('');
     setShowHelp(false);
+    setShowHistory(false);
 
     if (!isOnline) {
       const localHelp = searchHelpArticles(q, 2);
@@ -183,20 +257,21 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
         onStep: (label) => setStepLabel(label),
       });
 
+      const assistantMsg: ChatMessage = {
+        id: `msg_a_${Date.now()}`,
+        role: 'assistant',
+        text: res.answer.text,
+        cards: res.cards,
+        followUps: res.answer.followUps,
+        usedTools: res.answer.usedTools,
+        model: res.model,
+        questionId: res.questionId,
+      };
+      const nextMessages = [...withUser, assistantMsg];
+
       setHistory(res.history);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `msg_a_${Date.now()}`,
-          role: 'assistant',
-          text: res.answer.text,
-          cards: res.cards,
-          followUps: res.answer.followUps,
-          usedTools: res.answer.usedTools,
-          model: res.model,
-          questionId: res.questionId,
-        },
-      ]);
+      setMessages(nextMessages);
+      persistThread(nextMessages, res.history, activeThreadId, activeThreadCreatedAt);
     } catch (err) {
       const msg =
         err instanceof Error
@@ -219,9 +294,13 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
 
   const handleVote = async (msg: ChatMessage, vote: 'up' | 'down') => {
     if (!msg.questionId || msg.vote === vote) return;
-    setMessages((prev) =>
-      prev.map((m) => (m.id === msg.id ? { ...m, vote } : m))
+    const nextMessages = messages.map((m) =>
+      m.id === msg.id ? { ...m, vote } : m
     );
+    setMessages(nextMessages);
+    if (activeThreadId) {
+      persistThread(nextMessages, history, activeThreadId, activeThreadCreatedAt);
+    }
     try {
       await sendAssistantFeedback({
         questionId: msg.questionId,
@@ -396,7 +475,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
                 </h2>
               </div>
               <div className="text-[11px] text-[#6B6B66] truncate">
-                Romain Becker · {tabLabel || TAB_NAMES[ctx.activeTab]}
+                {userDisplayName || 'Romain Becker'} · {tabLabel || TAB_NAMES[ctx.activeTab]}
                 {ctx.settings.anonymizeClients ? ' · Confidentialité' : ''}
               </div>
             </div>
@@ -405,7 +484,30 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => setShowHelp((v) => !v)}
+              onClick={() => {
+                setShowHistory((v) => !v);
+                setShowHelp(false);
+              }}
+              title="Historique des conversations"
+              className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors ${
+                showHistory
+                  ? 'bg-[#721C24]/10 text-[#721C24]'
+                  : 'text-[#6B6B66] hover:text-[#141413] hover:bg-[#F6F6F4]'
+              }`}
+            >
+              <History className="w-4 h-4" />
+              {threads.length > 0 && (
+                <span className="font-mono-num text-[11px] font-medium">
+                  {threads.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowHelp((v) => !v);
+                setShowHistory(false);
+              }}
               title="Fiches d’aide métier"
               className={`p-2 rounded-lg text-xs transition-colors ${
                 showHelp
@@ -421,7 +523,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
               title="Nouvelle conversation"
               className="p-2 text-[#6B6B66] hover:text-[#141413] hover:bg-[#F6F6F4] rounded-lg transition-colors"
             >
-              <RotateCcw className="w-4 h-4" />
+              <MessageSquarePlus className="w-4 h-4" />
             </button>
             <button
               type="button"
@@ -443,12 +545,105 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
           </div>
         )}
 
-        {/* Messages / Help Body */}
+        {/* Messages / History / Help Body */}
         <div
           ref={scrollRef}
           aria-live="polite"
           className="flex-1 overflow-y-auto p-4 space-y-4"
         >
+          {showHistory && (
+            <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-semibold uppercase tracking-wider text-[#721C24]">
+                  Historique cloud ({threads.length})
+                </span>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleReset}
+                    className="text-xs font-medium text-[#721C24] hover:underline"
+                  >
+                    + Nouvelle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowHistory(false)}
+                    className="text-xs text-[#6B6B66] hover:text-[#141413]"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </div>
+
+              {threads.length === 0 ? (
+                <p className="text-xs text-[#6B6B66] py-3 text-center">
+                  Aucune conversation sauvegardée pour le moment. Vos échanges sont
+                  enregistrés automatiquement dès la première réponse.
+                </p>
+              ) : (
+                <div className="space-y-1.5">
+                  {threads.map((t) => {
+                    const isCurrent = t.id === activeThreadId;
+                    const dateLabel = t.updatedAt
+                      ? `${formatDateFR(t.updatedAt)} · ${t.updatedAt.slice(11, 16)}`
+                      : '';
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => handleLoadThread(t)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleLoadThread(t);
+                          }
+                        }}
+                        className={`w-full text-left p-3 rounded-lg border transition-colors cursor-pointer flex items-start justify-between gap-2 ${
+                          isCurrent
+                            ? 'bg-[#FDF8F8] border-[#721C24]/35'
+                            : 'bg-[#FAF9F7] border-[#ECEAE4] hover:bg-[#F3F1EC]'
+                        }`}
+                      >
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-semibold text-[#141413] truncate">
+                            {t.title}
+                          </div>
+                          <div className="text-[11px] text-[#6B6B66] mt-0.5 flex items-center gap-1.5">
+                            <span>{dateLabel}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono-num">
+                              {t.messageCount} msg
+                            </span>
+                            {isCurrent && (
+                              <>
+                                <span aria-hidden="true">·</span>
+                                <span className="text-[#721C24] font-medium">
+                                  Ouverte
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        {onDeleteThread && (
+                          <button
+                            type="button"
+                            onClick={(e) => handleDeleteSavedThread(e, t.id)}
+                            title="Supprimer cette conversation"
+                            aria-label="Supprimer cette conversation"
+                            className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] hover:bg-white rounded-md transition-colors shrink-0"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {showHelp && (
             <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -484,7 +679,7 @@ export const AssistantPanel: React.FC<AssistantPanelProps> = ({
             </div>
           )}
 
-          {messages.length === 0 && !showHelp && (
+          {messages.length === 0 && !showHelp && !showHistory && (
             <div className="space-y-4 pt-2">
               <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 space-y-2">
                 <div className="font-display text-lg font-semibold text-[#141413]">

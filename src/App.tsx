@@ -31,6 +31,7 @@ import {
   createInviteDoc,
   createPurchaseOrderDoc,
   createStockAdjustmentDoc,
+  deleteAssistantThreadDoc,
   deleteCampaignDoc,
   deleteCatalogDoc,
   deleteCustomerDoc,
@@ -48,10 +49,12 @@ import {
   sanitizeId,
   saveSettingsDoc,
   seedWorkspaceBundle,
+  subscribeAssistantThreads,
   subscribeWorkspaceData,
   updateFiscalDocumentDoc,
   updateMemberRoleDoc,
   updatePurchaseOrderDoc,
+  upsertAssistantThreadDoc,
   upsertCampaignDoc,
   upsertCatalogDoc,
   upsertCustomerDoc,
@@ -112,7 +115,7 @@ import { NewDirectOrderModal } from './components/NewDirectOrderModal';
 import { NewSupplierLotModal } from './components/NewSupplierLotModal';
 import { InvoiceAIModal } from './components/InvoiceAIModal';
 import { AssistantPanel } from './modules/assistant/AssistantPanel';
-import type { AssistantAction } from './modules/assistant/types';
+import type { AssistantAction, AssistantThread } from './modules/assistant/types';
 
 const LEGACY_STORAGE_KEYS = {
   catalog: 'lbg_catalog_v3',
@@ -234,6 +237,7 @@ export default function App() {
   const [purchaseOrders, setPurchaseOrders] = useState<SupplierPurchaseOrder[]>([]);
   const [campaigns, setCampaigns] = useState<SalesCampaign[]>([]);
   const [expenses, setExpenses] = useState<OperatingExpense[]>([]);
+  const [assistantThreads, setAssistantThreads] = useState<AssistantThread[]>([]);
 
   // --- UI State ---
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
@@ -325,6 +329,22 @@ export default function App() {
 
     return () => unsub();
   }, [accessState, currentMember]);
+
+  // Per-user Assistant IA conversation history subscription
+  useEffect(() => {
+    if (accessState !== 'authorized' || !firebaseUser) {
+      setAssistantThreads([]);
+      return;
+    }
+    const unsub = subscribeAssistantThreads(
+      firebaseUser.uid,
+      setAssistantThreads,
+      (err) => {
+        console.error('Assistant threads listener error:', err);
+      }
+    );
+    return () => unsub();
+  }, [accessState, firebaseUser]);
 
   // Global shortcut Cmd/Ctrl + K to toggle Assistant IA
   useEffect(() => {
@@ -1666,6 +1686,15 @@ export default function App() {
         }}
         tabLabel={activeNavLabel}
         onExecuteAction={handleExecuteAssistantAction}
+        threads={assistantThreads}
+        currentUserUid={firebaseUser.uid}
+        userDisplayName={currentMember.displayName}
+        onSaveThread={async (thread) => {
+          await upsertAssistantThreadDoc(thread);
+        }}
+        onDeleteThread={async (threadId) => {
+          await deleteAssistantThreadDoc(threadId);
+        }}
       />
     </div>
   );

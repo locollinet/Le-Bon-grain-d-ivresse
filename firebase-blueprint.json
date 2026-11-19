@@ -345,6 +345,23 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["id", "workspaceId", "date", "category", "label", "amountHT", "tvaRatePct", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "AssistantThread": {
+      "title": "AssistantThread",
+      "description": "Per-user saved conversation history with the AI wine merchant assistant.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 160 },
+        "messagesJson": { "type": "string", "maxLength": 200000 },
+        "historyJson": { "type": "string", "maxLength": 200000 },
+        "messageCount": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "ownerUid", "title", "messagesJson", "historyJson", "messageCount", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -403,6 +420,10 @@
     "/workspaces/{workspaceId}/expenses/{expenseId}": {
       "schema": { "$ref": "#/entities/OperatingExpense" },
       "description": "Operating expenses for real P&L."
+    },
+    "/workspaces/{workspaceId}/assistantThreads/{threadId}": {
+      "schema": { "$ref": "#/entities/AssistantThread" },
+      "description": "Per-user AI assistant conversation threads."
     }
   }
 }

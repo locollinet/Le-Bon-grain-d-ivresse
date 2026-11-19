@@ -28,6 +28,11 @@ import type {
   WorkspaceInvite,
   WorkspaceMember,
 } from '../types/wine';
+import type {
+  AssistantContent,
+  AssistantThread,
+  ChatMessage,
+} from '../modules/assistant/types';
 import { DEFAULT_SETTINGS } from '../data/seedData';
 
 export const WORKSPACE_ID = 'lbg-main';
@@ -879,6 +884,114 @@ export async function deleteExpenseDoc(expenseId: string): Promise<void> {
     await deleteDoc(wsDoc('expenses', id));
   } catch (err) {
     handleFirestoreError(err, OperationType.DELETE, `workspaces/${WORKSPACE_ID}/expenses/${id}`);
+  }
+}
+
+// --- Per-User Assistant IA Conversation History ---
+
+function boundJsonArray<T>(items: T[], maxItems: number, maxChars: number): string {
+  let slice = items.slice(-maxItems);
+  let json = JSON.stringify(slice);
+  while (json.length > maxChars && slice.length > 1) {
+    slice = slice.slice(1);
+    json = JSON.stringify(slice);
+  }
+  if (json.length > maxChars) {
+    return '[]';
+  }
+  return json;
+}
+
+function serializeAssistantThread(thread: AssistantThread) {
+  const id = sanitizeId(thread.id, 'thr');
+  const messagesJson = boundJsonArray(thread.messages, 40, 190000);
+  const historyJson = boundJsonArray(thread.history, 24, 190000);
+  const safeCount = Math.min(200, Math.max(0, thread.messages.length));
+  return {
+    id,
+    payload: {
+      id,
+      workspaceId: WORKSPACE_ID,
+      ownerUid: thread.ownerUid.slice(0, 128),
+      title: (thread.title || 'Conversation').trim().slice(0, 160) || 'Conversation',
+      messagesJson,
+      historyJson,
+      messageCount: safeCount,
+      createdAt: (thread.createdAt || nowIso()).slice(0, 40),
+      updatedAt: nowIso(),
+    },
+  };
+}
+
+export function subscribeAssistantThreads(
+  ownerUid: string,
+  onThreads: (threads: AssistantThread[]) => void,
+  onError: (err: Error) => void
+): Unsubscribe {
+  const q = query(wsCol('assistantThreads'), where('ownerUid', '==', ownerUid));
+  return onSnapshot(
+    q,
+    (snap) => {
+      const threads: AssistantThread[] = snap.docs
+        .map((d) => {
+          const raw = d.data() as Record<string, unknown>;
+          let messages: ChatMessage[] = [];
+          let history: AssistantContent[] = [];
+          try {
+            if (typeof raw.messagesJson === 'string') {
+              const parsed = JSON.parse(raw.messagesJson);
+              if (Array.isArray(parsed)) messages = parsed as ChatMessage[];
+            }
+          } catch {
+            messages = [];
+          }
+          try {
+            if (typeof raw.historyJson === 'string') {
+              const parsed = JSON.parse(raw.historyJson);
+              if (Array.isArray(parsed)) history = parsed as AssistantContent[];
+            }
+          } catch {
+            history = [];
+          }
+          return {
+            id: String(raw.id ?? d.id),
+            ownerUid: String(raw.ownerUid ?? ownerUid),
+            title: String(raw.title ?? 'Conversation'),
+            messages,
+            history,
+            messageCount: Number(raw.messageCount ?? messages.length),
+            createdAt: String(raw.createdAt ?? ''),
+            updatedAt: String(raw.updatedAt ?? ''),
+          };
+        })
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+      onThreads(threads);
+    },
+    (err) => {
+      try {
+        handleFirestoreError(err, OperationType.LIST, `workspaces/${WORKSPACE_ID}/assistantThreads`);
+      } catch (wrapped) {
+        onError(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
+      }
+    }
+  );
+}
+
+export async function upsertAssistantThreadDoc(thread: AssistantThread): Promise<void> {
+  const { id, payload } = serializeAssistantThread(thread);
+  try {
+    await setDoc(wsDoc('assistantThreads', id), payload);
+  } catch (err) {
+    handleFirestoreError(err, OperationType.WRITE, `workspaces/${WORKSPACE_ID}/assistantThreads/${id}`);
+  }
+}
+
+export async function deleteAssistantThreadDoc(threadId: string): Promise<void> {
+  const id = sanitizeId(threadId, 'thr');
+  try {
+    await deleteDoc(wsDoc('assistantThreads', id));
+  } catch (err) {
+    handleFirestoreError(err, OperationType.DELETE, `workspaces/${WORKSPACE_ID}/assistantThreads/${id}`);
   }
 }
 
