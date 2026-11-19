@@ -1,351 +1,616 @@
-import React, { useEffect, useState } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { X, Plus, Trash2, ShoppingBag, Wine } from 'lucide-react';
 import {
+  AppSettings,
+  CustomerSummary,
+  DeliveryMode,
   OrderLine,
   OrderSource,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   StockSummaryRow,
   WineCatalogItem,
 } from '../types/wine';
-import { formatEUR } from '../utils/wineMath';
-import type { DirectOrderPrefill } from '../modules/assistant/types';
+import { formatEUR, getLogisticsCostHT } from '../utils/wineMath';
 
 interface NewDirectOrderModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   catalog: WineCatalogItem[];
   stockRows: StockSummaryRow[];
-  prefill?: DirectOrderPrefill | null;
-  onAddOrder: (order: OrderLine) => void;
+  customers: CustomerSummary[];
+  settings: AppSettings;
+  onClose: () => void;
+  onAddOrders: (orders: OrderLine[]) => Promise<void> | void;
+}
+
+interface DraftLine {
+  key: string;
+  catalogId: string;
+  qte: number;
+  prixUnitaireTTC: number;
 }
 
 export const NewDirectOrderModal: React.FC<NewDirectOrderModalProps> = ({
-  isOpen,
-  onClose,
   catalog,
   stockRows,
-  prefill,
-  onAddOrder,
+  customers,
+  settings,
+  onClose,
+  onAddOrders,
 }) => {
-  const [catalogId, setCatalogId] = useState(catalog[0]?.id ?? '');
-  const [nomClient, setNomClient] = useState('');
-  const [prenomClient, setPrenomClient] = useState('');
-  const [emailClient, setEmailClient] = useState('');
-  const [qte, setQte] = useState(1);
-  const [prixOverride, setPrixOverride] = useState<string>('');
+  const defaultWine = catalog[0];
   const [source, setSource] = useState<OrderSource>('direct');
-  const [statut, setStatut] = useState<OrderStatus>('recu_lbg');
+  const [selectedCustomerKey, setSelectedCustomerKey] = useState<string>('');
+  const [prenomClient, setPrenomClient] = useState('');
+  const [nomClient, setNomClient] = useState('');
+  const [emailClient, setEmailClient] = useState('');
+  const [vente, setVente] = useState('Vente directe cave');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [statut, setStatut] = useState<OrderStatus>('recu_lbg');
+
+  // Payment & delivery
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('en_attente');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('virement');
+  const [amountPaidTTC, setAmountPaidTTC] = useState<string>('');
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>('remise_main');
+  const [shippingFeeTTC, setShippingFeeTTC] = useState<number>(0);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
   const [notes, setNotes] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setCatalogId(prefill?.catalogId || catalog[0]?.id || '');
-    setNomClient(prefill?.nomClient ?? '');
-    setPrenomClient(prefill?.prenomClient ?? '');
-    setEmailClient(prefill?.emailClient ?? '');
-    setQte(prefill?.qte ? Math.max(1, prefill.qte) : 1);
-    setPrixOverride(
-      prefill?.prixOverride !== undefined ? String(prefill.prixOverride) : ''
-    );
-    const nextSource = prefill?.source ?? 'direct';
+  // Multi-line items
+  const [lines, setLines] = useState<DraftLine[]>(() => [
+    {
+      key: `line_${Date.now()}`,
+      catalogId: defaultWine?.id ?? '',
+      qte: 1,
+      prixUnitaireTTC: defaultWine?.prixLbgTTC ?? 0,
+    },
+  ]);
+
+  const [submitting, setSubmitting] = useState(false);
+
+  const catalogMap = useMemo(
+    () => new Map(catalog.map((c) => [c.id, c])),
+    [catalog]
+  );
+  const stockMap = useMemo(
+    () => new Map(stockRows.map((r) => [r.catalog.id, r])),
+    [stockRows]
+  );
+
+  const handleSelectCustomer = (key: string) => {
+    setSelectedCustomerKey(key);
+    const c = customers.find((x) => x.key === key);
+    if (c) {
+      setNomClient(c.nom);
+      setPrenomClient(c.prenom);
+      setEmailClient(c.email);
+      setDeliveryAddress(c.shippingAddress || c.billingAddress || '');
+    }
+  };
+
+  const handleSourceChange = (nextSource: OrderSource) => {
     setSource(nextSource);
-    setStatut(
-      prefill?.statut ?? (nextSource === 'perso' ? 'remis_client' : 'recu_lbg')
+    if (nextSource === 'perso') {
+      setNomClient('Dégustation');
+      setPrenomClient('Cave LBG');
+      setEmailClient('');
+      setVente('Prélèvement cave perso');
+      setStatut('remis_client');
+      setPaymentStatus('paye');
+      setShippingFeeTTC(0);
+      setLines((prev) => prev.map((l) => ({ ...l, prixUnitaireTTC: 0 })));
+    } else {
+      setLines((prev) =>
+        prev.map((l) => {
+          const item = catalogMap.get(l.catalogId);
+          return {
+            ...l,
+            prixUnitaireTTC:
+              l.prixUnitaireTTC === 0 ? (item?.prixLbgTTC ?? 0) : l.prixUnitaireTTC,
+          };
+        })
+      );
+    }
+  };
+
+  const addLine = () => {
+    const nextWine =
+      catalog.find((c) => !lines.some((l) => l.catalogId === c.id)) ?? catalog[0];
+    if (!nextWine) return;
+    setLines((prev) => [
+      ...prev,
+      {
+        key: `line_${Date.now()}_${prev.length}`,
+        catalogId: nextWine.id,
+        qte: 1,
+        prixUnitaireTTC: source === 'perso' ? 0 : nextWine.prixLbgTTC,
+      },
+    ]);
+  };
+
+  const removeLine = (key: string) => {
+    setLines((prev) => (prev.length <= 1 ? prev : prev.filter((l) => l.key !== key)));
+  };
+
+  const updateLine = (key: string, patch: Partial<DraftLine>) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.key !== key) return l;
+        const merged = { ...l, ...patch };
+        if (patch.catalogId && patch.catalogId !== l.catalogId) {
+          const item = catalogMap.get(patch.catalogId);
+          merged.prixUnitaireTTC = source === 'perso' ? 0 : (item?.prixLbgTTC ?? 0);
+        }
+        return merged;
+      })
     );
-    setDate(new Date().toISOString().slice(0, 10));
-    setNotes(prefill?.notes ?? '');
-  }, [isOpen, prefill, catalog]);
+  };
 
-  if (!isOpen) return null;
+  const totals = useMemo(() => {
+    let totalBottles = 0;
+    let totalWinesTTC = 0;
+    for (const l of lines) {
+      totalBottles += l.qte;
+      totalWinesTTC += l.prixUnitaireTTC * l.qte;
+    }
+    const grandTotalTTC = totalWinesTTC + (source === 'perso' ? 0 : shippingFeeTTC);
+    return { totalBottles, totalWinesTTC, grandTotalTTC };
+  }, [lines, shippingFeeTTC, source]);
 
-  const selectedItem = catalog.find((c) => c.id === catalogId) ?? catalog[0];
-  const selectedStock = selectedItem
-    ? stockRows.find((r) => r.catalog.id === selectedItem.id)
-    : undefined;
-  const dispo = selectedStock?.disponibleVente ?? 0;
-
-  const effectivePrice =
-    source === 'perso'
-      ? 0
-      : prixOverride !== ''
-        ? Number(prixOverride)
-        : selectedItem?.prixLbgTTC ?? 0;
-
-  const isOverStock = selectedItem !== undefined && qte > dispo;
-
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedItem || !nomClient.trim()) return;
+    if (!nomClient.trim() || lines.length === 0) return;
 
-    const uid =
-      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-        ? crypto.randomUUID().slice(0, 8)
-        : String(Date.now()).slice(-6);
+    setSubmitting(true);
+    try {
+      const ts = Date.now();
+      const refCommande = `${source === 'perso' ? 'PERSO' : 'DIR'}-${String(ts).slice(-6)}`;
+      const selectedCustomer = customers.find((c) => c.key === selectedCustomerKey);
+      const tvaPct = Math.round(settings.tvaRate * 100);
+      const paidDate = paymentStatus === 'paye' ? date : undefined;
 
-    const newOrder: OrderLine = {
-      id: `ord_dir_${uid}_${Date.now()}`,
-      date,
-      refCommande:
-        source === 'perso'
-          ? `CAVE-${uid.toUpperCase()}`
-          : `DIR-${uid.toUpperCase()}`,
-      vente: selectedItem.vente,
-      nomClient: nomClient.trim(),
-      prenomClient: prenomClient.trim(),
-      emailClient: emailClient.trim(),
-      catalogId: selectedItem.id,
-      produitLabel: selectedItem.cuvee,
-      prixUnitaireTTC: effectivePrice,
-      qte: Math.max(1, qte),
-      statut,
-      source,
-      notes: notes.trim() || undefined,
-    };
+      const created: OrderLine[] = lines
+        .filter((l) => l.catalogId && l.qte >= 1)
+        .map((l, index) => {
+          const item = catalogMap.get(l.catalogId);
+          const stock = stockMap.get(l.catalogId);
+          const buyHT = stock?.coutMoyenPondereHT ?? item?.tarifAchatHT ?? 0;
+          const logHT = item ? getLogisticsCostHT(item, settings) : settings.fraisLogistiqueParBouteille;
+          const isFirst = index === 0;
+          return {
+            id: `ord_${ts}_${index + 1}`,
+            date,
+            refCommande,
+            vente: vente.trim() || 'Vente directe',
+            customerId: selectedCustomer?.profileId,
+            nomClient: nomClient.trim(),
+            prenomClient: prenomClient.trim(),
+            emailClient: emailClient.trim().toLowerCase(),
+            catalogId: l.catalogId,
+            produitLabel: item ? `${item.domaine} — ${item.cuvee}` : l.catalogId,
+            prixUnitaireTTC: source === 'perso' ? 0 : Math.max(0, l.prixUnitaireTTC),
+            coutAchatUnitaireHT: Number(buyHT.toFixed(2)),
+            coutLogistiqueUnitaireHT: Number(logHT.toFixed(2)),
+            tvaRatePct: tvaPct,
+            qte: Math.max(1, Math.round(l.qte)),
+            qteRemise: statut === 'remis_client' ? Math.max(1, Math.round(l.qte)) : 0,
+            statut,
+            source,
+            paymentStatus,
+            paymentMethod: source === 'perso' ? 'autre' : paymentMethod,
+            amountPaidTTC:
+              isFirst && paymentStatus === 'partiel' && amountPaidTTC
+                ? Number(amountPaidTTC)
+                : undefined,
+            paidAt: paidDate,
+            deliveryMode,
+            shippingFeeClientTTC:
+              isFirst && source !== 'perso' && shippingFeeTTC > 0
+                ? shippingFeeTTC
+                : undefined,
+            deliveryAddress: deliveryAddress.trim() || undefined,
+            notes: notes.trim() || undefined,
+          };
+        });
 
-    onAddOrder(newOrder);
-    onClose();
+      await onAddOrders(created);
+      onClose();
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="direct-order-title"
-    >
-      <div className="w-full max-w-xl bg-white border border-[#E5E4DF] rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E4DF]">
-          <div>
-            <h2
-              id="direct-order-title"
-              className="text-xl font-semibold text-[#141413]"
-            >
-              Saisir une vente directe ou sortie de cave
-            </h2>
-            <p className="text-sm text-[#6B6B66] mt-0.5">
-              Pour les ventes hors HelloAsso (WhatsApp, Club, remise directe) ou
-              dégustations perso.
-            </p>
+    <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-3xl max-h-[92vh] flex flex-col overflow-hidden"
+      >
+        <div className="p-5 border-b border-[#E5E4DF] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <ShoppingBag className="w-5 h-5 text-[#721C24]" />
+            <div>
+              <h2 className="font-serif text-xl font-semibold text-[#18181B]">
+                Nouvelle commande multi-cuvées
+              </h2>
+              <p className="text-xs text-[#6B6A65]">
+                Toutes les lignes partagent la même référence commande pour une facture unique.
+              </p>
+            </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 text-[#6B6B66] hover:text-[#141413] hover:bg-[#F6F6F4] rounded-lg"
-            aria-label="Fermer"
+            className="p-1 text-[#6B6A65] hover:text-[#18181B] cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Type d’opération
-              </label>
-              <select
-                value={source}
-                onChange={(e) => {
-                  const val = e.target.value as OrderSource;
-                  setSource(val);
-                  if (val === 'perso') {
-                    setStatut('remis_client');
-                  } else if (statut === 'remis_client') {
-                    setStatut('recu_lbg');
-                  }
-                }}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+        <div className="p-5 overflow-y-auto space-y-5 flex-1 text-sm">
+          {/* Source toggle */}
+          <div className="flex gap-2">
+            {(
+              [
+                ['direct', 'Vente directe / Club / Pro'],
+                ['perso', 'Sortie cave perso / Dégustation (0 €)'],
+              ] as const
+            ).map(([val, label]) => (
+              <button
+                key={val}
+                type="button"
+                onClick={() => handleSourceChange(val)}
+                className={`flex-1 py-2 px-3 rounded-lg border text-xs font-medium transition-colors cursor-pointer ${
+                  source === val
+                    ? 'border-[#721C24] bg-[#FDF8F8] text-[#721C24]'
+                    : 'border-[#E5E4DF] text-[#6B6A65] hover:bg-[#F6F6F4]'
+                }`}
               >
-                <option value="direct">Vente directe / WhatsApp / Club</option>
-                <option value="perso">Prélèvement cave / Dégustation (0 €)</option>
-              </select>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Client selection */}
+          {source !== 'perso' && (
+            <div className="space-y-3 bg-[#FAF9F6] border border-[#E5E4DF] rounded-lg p-3.5">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Sélectionner un client existant (optionnel)
+                </label>
+                <select
+                  value={selectedCustomerKey}
+                  onChange={(e) => handleSelectCustomer(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white text-sm"
+                >
+                  <option value="">— Saisir un nouveau client —</option>
+                  {customers.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.prenom} {c.nom}
+                      {c.companyName ? ` (${c.companyName})` : ''}
+                      {c.email ? ` · ${c.email}` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Prénom
+                  </label>
+                  <input
+                    value={prenomClient}
+                    onChange={(e) => setPrenomClient(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-[#E5E4DF] rounded-lg bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Nom *
+                  </label>
+                  <input
+                    required
+                    value={nomClient}
+                    onChange={(e) => setNomClient(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-[#E5E4DF] rounded-lg bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    value={emailClient}
+                    onChange={(e) => setEmailClient(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-[#E5E4DF] rounded-lg bg-white"
+                  />
+                </div>
+              </div>
             </div>
+          )}
+
+          {/* Wine lines */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-[#6B6A65] flex items-center gap-1.5">
+                <Wine className="w-3.5 h-3.5 text-[#721C24]" />
+                Cuvées commandées ({lines.length})
+              </label>
+              <button
+                type="button"
+                onClick={addLine}
+                className="text-xs font-medium text-[#721C24] hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                Ajouter une cuvée
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {lines.map((line) => {
+                const st = stockMap.get(line.catalogId);
+                return (
+                  <div
+                    key={line.key}
+                    className="grid grid-cols-12 gap-2 items-center p-2.5 rounded-lg border border-[#E5E4DF] bg-white"
+                  >
+                    <div className="col-span-12 sm:col-span-6">
+                      <select
+                        value={line.catalogId}
+                        onChange={(e) =>
+                          updateLine(line.key, { catalogId: e.target.value })
+                        }
+                        className="w-full px-2.5 py-1.5 border border-[#E5E4DF] rounded text-xs"
+                      >
+                        {catalog.map((c) => {
+                          const s = stockMap.get(c.id);
+                          return (
+                            <option key={c.id} value={c.id}>
+                              {c.domaine} — {c.cuvee} (Dispo:{' '}
+                              {s?.disponibleVente ?? 0})
+                            </option>
+                          );
+                        })}
+                      </select>
+                      {st && (
+                        <div className="text-[11px] text-[#6B6A65] mt-0.5 pl-0.5">
+                          Cave : {st.physiqueCave} · Dispo vente :{' '}
+                          <span
+                            className={
+                              st.disponibleVente < line.qte
+                                ? 'text-[#B45309] font-medium'
+                                : 'text-[#15803D]'
+                            }
+                          >
+                            {st.disponibleVente}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="col-span-4 sm:col-span-2">
+                      <label className="block text-[10px] text-[#6B6A65]">Qté</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={line.qte}
+                        onChange={(e) =>
+                          updateLine(line.key, {
+                            qte: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-[#E5E4DF] rounded font-mono text-right text-xs"
+                      />
+                    </div>
+                    <div className="col-span-6 sm:col-span-3">
+                      <label className="block text-[10px] text-[#6B6A65]">
+                        Prix unit. TTC (€)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.1"
+                        disabled={source === 'perso'}
+                        value={line.prixUnitaireTTC}
+                        onChange={(e) =>
+                          updateLine(line.key, {
+                            prixUnitaireTTC: Math.max(0, Number(e.target.value) || 0),
+                          })
+                        }
+                        className="w-full px-2 py-1 border border-[#E5E4DF] rounded font-mono text-right text-xs disabled:bg-[#F6F6F4]"
+                      />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => removeLine(line.key)}
+                        disabled={lines.length <= 1}
+                        className="p-1.5 text-[#6B6A65] hover:text-[#B91C1C] disabled:opacity-30 cursor-pointer"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Date, Campaign, Status */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
                 Date
               </label>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
               />
             </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-[#6B6B66]">
-                Cuvée
-              </label>
-              {selectedStock && (
-                <span
-                  className={`text-xs font-mono-num font-medium ${
-                    dispo > 0
-                      ? 'text-[#15803D]'
-                      : dispo < 0
-                        ? 'text-[#B91C1C]'
-                        : 'text-[#6B6B66]'
-                  }`}
-                >
-                  Dispo libre : {dispo} btl · Cave : {selectedStock.physiqueCave} btl
-                </span>
-              )}
-            </div>
-            <select
-              value={catalogId}
-              onChange={(e) => {
-                setCatalogId(e.target.value);
-                setPrixOverride('');
-              }}
-              className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-            >
-              {catalog.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.domaine} — {c.cuvee} ({formatEUR(c.prixLbgTTC)})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {isOverStock && (
-            <div className="flex items-start gap-2 p-3 text-xs text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-[#B45309]" />
-              <span>
-                Stock libre insuffisant ({dispo} btl disponibles pour {qte} demandée
-                {qte > 1 ? 's' : ''}). L’enregistrement créera un déficit à
-                commander au domaine.
-              </span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Prénom client
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Campagne / Vente
               </label>
               <input
-                type="text"
-                value={prenomClient}
-                onChange={(e) => setPrenomClient(e.target.value)}
-                placeholder="Ex : Romain"
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+                value={vente}
+                onChange={(e) => setVente(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Nom client *
-              </label>
-              <input
-                type="text"
-                required
-                value={nomClient}
-                onChange={(e) => setNomClient(e.target.value)}
-                placeholder="Ex : Pasquet"
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Email (optionnel)
-              </label>
-              <input
-                type="email"
-                value={emailClient}
-                onChange={(e) => setEmailClient(e.target.value)}
-                placeholder="client@email.fr"
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Quantité (btl)
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={qte}
-                onChange={(e) => setQte(Number(e.target.value))}
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Prix unitaire TTC (€)
-              </label>
-              <input
-                type="number"
-                step="0.5"
-                min={0}
-                disabled={source === 'perso'}
-                value={
-                  source === 'perso'
-                    ? '0'
-                    : prixOverride !== ''
-                      ? prixOverride
-                      : String(selectedItem?.prixLbgTTC ?? 0)
-                }
-                onChange={(e) => setPrixOverride(e.target.value)}
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24] disabled:bg-[#F6F6F4]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
                 Statut logistique
               </label>
               <select
                 value={statut}
                 onChange={(e) => setStatut(e.target.value as OrderStatus)}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
               >
-                <option value="recu_lbg">Reçu par LBG (en cave)</option>
                 <option value="attente_reception">En attente domaine</option>
-                <option value="remis_client">Déjà remis au client</option>
+                <option value="recu_lbg">Prêt à remettre (Reçu LBG)</option>
+                <option value="remis_client">Remis au client</option>
               </select>
             </div>
           </div>
 
+          {/* Payment & Shipping */}
+          {source !== 'perso' && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2 border-t border-[#E5E4DF]">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Statut paiement
+                </label>
+                <select
+                  value={paymentStatus}
+                  onChange={(e) => setPaymentStatus(e.target.value as PaymentStatus)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white text-xs"
+                >
+                  <option value="en_attente">En attente de règlement</option>
+                  <option value="partiel">Acompte / Partiel</option>
+                  <option value="paye">Payé</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Mode de paiement
+                </label>
+                <select
+                  value={paymentMethod}
+                  onChange={(e) => setPaymentMethod(e.target.value as PaymentMethod)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white text-xs"
+                >
+                  <option value="virement">Virement</option>
+                  <option value="cb">Carte bancaire</option>
+                  <option value="helloasso">HelloAsso</option>
+                  <option value="especes">Espèces</option>
+                  <option value="cheque">Chèque</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Mode de livraison
+                </label>
+                <select
+                  value={deliveryMode}
+                  onChange={(e) => setDeliveryMode(e.target.value as DeliveryMode)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white text-xs"
+                >
+                  <option value="remise_main">Remise en main propre</option>
+                  <option value="expedition">Expédition transporteur</option>
+                  <option value="garde_cave">Garde en cave LBG</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Frais de port facturés TTC (€)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={shippingFeeTTC}
+                  onChange={(e) =>
+                    setShippingFeeTTC(Math.max(0, Number(e.target.value) || 0))
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono text-xs"
+                />
+              </div>
+
+              {paymentStatus === 'partiel' && (
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Montant déjà encaissé TTC (€)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={amountPaidTTC}
+                    onChange={(e) => setAmountPaidTTC(e.target.value)}
+                    className="w-full px-3 py-1.5 border border-[#E5E4DF] rounded-lg font-mono text-xs"
+                  />
+                </div>
+              )}
+
+              {deliveryMode === 'expedition' && (
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Adresse d’expédition
+                  </label>
+                  <input
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Rue, Code postal, Ville, instructions…"
+                    className="w-full px-3 py-1.5 border border-[#E5E4DF] rounded-lg text-xs"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-              Note (optionnel)
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Notes internes
             </label>
             <input
-              type="text"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Ex : Règlement virement / Remise en main propre"
-              className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+              placeholder="Remise club, demande particulière…"
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg text-xs"
             />
           </div>
+        </div>
 
-          <div className="flex items-center justify-between pt-3 border-t border-[#E5E4DF]">
-            <div className="text-sm text-[#6B6B66]">
-              Total commande :{' '}
-              <span className="font-semibold text-[#141413] font-mono-num">
-                {formatEUR(effectivePrice * Math.max(1, qte))}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-[#6B6B66] hover:text-[#141413]"
-              >
-                Annuler
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors"
-              >
-                Enregistrer
-              </button>
-            </div>
+        <div className="p-4 border-t border-[#E5E4DF] bg-[#FAF9F6] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="text-sm">
+            Total commande :{' '}
+            <strong className="font-mono">{totals.totalBottles} btl</strong> ·{' '}
+            <strong className="font-mono text-[#721C24]">
+              {formatEUR(totals.grandTotalTTC)} TTC
+            </strong>
           </div>
-        </form>
-      </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg border border-[#E5E4DF] bg-white text-sm cursor-pointer"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              className="px-4 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] disabled:opacity-50 text-white text-sm font-medium cursor-pointer"
+            >
+              {submitting ? 'Enregistrement…' : 'Valider la commande'}
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 };

@@ -1,7 +1,10 @@
 import {
   AppSettings,
+  CustomerProfile,
   CustomerSummary,
+  DomainSupplier,
   OrderLine,
+  StockAdjustment,
   StockSummaryRow,
   SupplierLot,
   WineCatalogItem,
@@ -49,9 +52,14 @@ export function formatPct(value: number, showSign = false): string {
 
 export function formatDateFR(isoDate: string): string {
   if (!isoDate) return '—';
-  const parts = isoDate.split('-');
+  const parts = isoDate.slice(0, 10).split('-');
   if (parts.length !== 3) return isoDate;
   return `${parts[2]}/${parts[1]}/${parts[0]}`;
+}
+
+export function extractVintageFromCuvee(cuvee: string): string {
+  const match = cuvee.match(/\b(19[6-9]\d|20[0-3]\d)\b/);
+  return match ? match[1] : '';
 }
 
 export function getDefaultLogisticsPerBottle(settings: AppSettings): number {
@@ -96,7 +104,8 @@ export function computeBottleEconomics(
   settings: AppSettings,
   overrideSellPriceTTC?: number,
   overrideTvaRatePct?: number,
-  overrideBuyHT?: number
+  overrideBuyHT?: number,
+  overrideLogisticsHT?: number
 ): {
   prixTTC: number;
   prixHT: number;
@@ -114,7 +123,10 @@ export function computeBottleEconomics(
       ? Math.max(0, overrideTvaRatePct) / 100
       : settings.tvaRate;
   const buyHT = overrideBuyHT !== undefined ? overrideBuyHT : item.tarifAchatHT;
-  const coutLogistiqueHT = getLogisticsCostHT(item, settings);
+  const coutLogistiqueHT =
+    overrideLogisticsHT !== undefined
+      ? overrideLogisticsHT
+      : getLogisticsCostHT(item, settings);
   const coutTotalHT = buyHT + coutLogistiqueHT;
   const tarifBaseConseilleTTC = computeRecommendedBasePriceTTC(
     buyHT,
@@ -139,7 +151,6 @@ export function computeBottleEconomics(
 
   const prixHT = prixTTC / (1 + tvaRate);
   const margeEuro = prixHT - coutTotalHT;
-  // Formule LBG : % marge nette livré = Marge nette / Coût de revient livré HT
   const margePct = coutTotalHT > 0 ? (margeEuro / coutTotalHT) * 100 : 0;
   const margeSurCaPct = prixHT > 0 ? (margeEuro / prixHT) * 100 : 0;
 
@@ -161,6 +172,27 @@ export function computeBottleEconomics(
   };
 }
 
+export function getEffectiveOrderPaymentStatus(
+  order: OrderLine
+): 'en_attente' | 'partiel' | 'paye' | 'rembourse' {
+  if (order.paymentStatus) return order.paymentStatus;
+  if (order.statut === 'annule') return 'rembourse';
+  if (order.source === 'helloasso' || order.source === 'perso') return 'paye';
+  if (order.statut === 'remis_client') return 'paye';
+  return 'en_attente';
+}
+
+export function getOrderLineUnpaidTTC(order: OrderLine): number {
+  if (order.statut === 'annule' || order.source === 'perso') return 0;
+  const status = getEffectiveOrderPaymentStatus(order);
+  if (status === 'paye' || status === 'rembourse') return 0;
+  const lineTotal = order.prixUnitaireTTC * order.qte + (order.shippingFeeClientTTC ?? 0);
+  if (status === 'partiel' && order.amountPaidTTC !== undefined) {
+    return Math.max(0, lineTotal - order.amountPaidTTC);
+  }
+  return lineTotal;
+}
+
 export function computeOrderLineEconomics(
   order: OrderLine,
   item: WineCatalogItem | undefined,
@@ -180,12 +212,13 @@ export function computeOrderLineEconomics(
       ? Math.max(0, order.tvaRatePct) / 100
       : settings.tvaRate;
 
+  const frozenBuyHT = order.coutAchatUnitaireHT ?? item?.tarifAchatHT ?? 0;
+
   if (isPerso) {
-    const unitBuy = item?.tarifAchatHT ?? 0;
     return {
       caTTC: 0,
       caHT: 0,
-      coutVinHT: unitBuy * order.qte,
+      coutVinHT: frozenBuyHT * order.qte,
       fraisLogistiqueHT: 0,
       margeEuroTotal: 0,
       margePct: 0,
@@ -195,7 +228,7 @@ export function computeOrderLineEconomics(
 
   const caTTC = order.prixUnitaireTTC * order.qte;
   const caHT = caTTC / (1 + tvaRate);
-  if (!item) {
+  if (!item && order.coutAchatUnitaireHT === undefined) {
     return {
       caTTC,
       caHT,
@@ -207,16 +240,34 @@ export function computeOrderLineEconomics(
     };
   }
 
+  const fallbackItem: WineCatalogItem = item ?? {
+    id: order.catalogId,
+    vente: order.vente,
+    domaine: '',
+    cuvee: order.produitLabel,
+    reference: order.produitLabel,
+    region: '',
+    color: 'Blanc',
+    tarifAchatHT: frozenBuyHT,
+    prixLbgTTC: order.prixUnitaireTTC,
+    benchTTC: null,
+    benchSource: '',
+    dispoPublic: false,
+  };
+
   const econ = computeBottleEconomics(
-    item,
+    fallbackItem,
     settings,
     order.prixUnitaireTTC,
-    order.tvaRatePct
+    order.tvaRatePct,
+    frozenBuyHT,
+    order.coutLogistiqueUnitaireHT
   );
+
   return {
     caTTC,
     caHT,
-    coutVinHT: item.tarifAchatHT * order.qte,
+    coutVinHT: frozenBuyHT * order.qte,
     fraisLogistiqueHT: econ.coutLogistiqueHT * order.qte,
     margeEuroTotal: econ.margeEuro * order.qte,
     margePct: econ.margePct,
@@ -227,7 +278,8 @@ export function computeOrderLineEconomics(
 export function computeStockSummaries(
   catalog: WineCatalogItem[],
   lots: SupplierLot[],
-  orders: OrderLine[]
+  orders: OrderLine[],
+  adjustments: StockAdjustment[] = []
 ): StockSummaryRow[] {
   const lotsByCat = new Map<string, SupplierLot[]>();
   for (const l of lots) {
@@ -244,9 +296,15 @@ export function computeStockSummaries(
     else ordersByCat.set(o.catalogId, [o]);
   }
 
+  const adjByCat = new Map<string, number>();
+  for (const a of adjustments) {
+    adjByCat.set(a.catalogId, (adjByCat.get(a.catalogId) ?? 0) + a.qtyDelta);
+  }
+
   return catalog.map((item) => {
     const itemLots = lotsByCat.get(item.id) ?? [];
     const itemOrders = ordersByCat.get(item.id) ?? [];
+    const ajustementsNet = adjByCat.get(item.id) ?? 0;
 
     const totalRecuFournisseur = itemLots.reduce(
       (sum, l) => sum + l.qteRecue,
@@ -259,26 +317,31 @@ export function computeStockSummaries(
 
     const attenteReceptionClients = itemOrders
       .filter((o) => o.statut === 'attente_reception')
-      .reduce((sum, o) => sum + o.qte, 0);
+      .reduce((sum, o) => sum + Math.max(0, o.qte - (o.qteRemise ?? 0)), 0);
 
     const pretARemettreClients = itemOrders
       .filter((o) => o.statut === 'recu_lbg')
-      .reduce((sum, o) => sum + o.qte, 0);
+      .reduce((sum, o) => sum + Math.max(0, o.qte - (o.qteRemise ?? 0)), 0);
 
-    const remisClients = itemOrders
-      .filter((o) => o.statut === 'remis_client')
-      .reduce((sum, o) => sum + o.qte, 0);
+    const remisClients = itemOrders.reduce((sum, o) => {
+      if (o.statut === 'remis_client') return sum + o.qte;
+      return sum + Math.min(o.qte, o.qteRemise ?? 0);
+    }, 0);
 
     const reserveClients = attenteReceptionClients + pretARemettreClients;
-    const physiqueCave = Math.max(0, totalRecuFournisseur - remisClients);
+    const physiqueCave = Math.max(
+      0,
+      totalRecuFournisseur + ajustementsNet - remisClients
+    );
     const disponibleVente =
       totalRecuFournisseur +
+      ajustementsNet +
       enCommandeFournisseur -
       remisClients -
       reserveClients;
 
     const totalLotQty = itemLots.reduce((s, l) => s + l.qteCommandee, 0);
-    const avgCost =
+    const coutMoyenPondereHT =
       itemLots.length > 0 && totalLotQty > 0
         ? itemLots.reduce(
             (s, l) =>
@@ -290,6 +353,7 @@ export function computeStockSummaries(
     const bottlesHeldOrPaid = Math.max(
       0,
       totalRecuFournisseur +
+        ajustementsNet +
         itemLots
           .filter(
             (l) => l.statutLot !== 'en_transit' || l.typeAchat === 'avance'
@@ -301,7 +365,7 @@ export function computeStockSummaries(
         remisClients
     );
 
-    const capitalImmobiliseHT = bottlesHeldOrPaid * avgCost;
+    const capitalImmobiliseHT = bottlesHeldOrPaid * coutMoyenPondereHT;
     const hasAdvanceStock = itemLots.some(
       (l) => l.typeAchat === 'avance' || l.typeAchat === 'cave'
     );
@@ -309,12 +373,14 @@ export function computeStockSummaries(
     return {
       catalog: item,
       physiqueCave,
+      ajustementsNet,
       enCommandeFournisseur,
       reserveClients,
       attenteReceptionClients,
       pretARemettreClients,
       remisClients,
       disponibleVente,
+      coutMoyenPondereHT,
       capitalImmobiliseHT,
       hasAdvanceStock,
     };
@@ -326,37 +392,66 @@ function normalizedNameKey(nom: string, prenom: string): string {
 }
 
 export function resolveCustomerKey(
-  order: Pick<OrderLine, 'emailClient' | 'nomClient' | 'prenomClient'>,
-  nameToEmail?: Map<string, string>
+  order: Pick<OrderLine, 'emailClient' | 'nomClient' | 'prenomClient' | 'customerId'>,
+  nameToEmail?: Map<string, string>,
+  aliasToKey?: Map<string, string>
 ): string {
   const cleanEmail = order.emailClient?.trim().toLowerCase();
+  if (cleanEmail && aliasToKey?.has(cleanEmail)) {
+    return aliasToKey.get(cleanEmail)!;
+  }
   if (cleanEmail) return cleanEmail;
   const nKey = normalizedNameKey(order.nomClient, order.prenomClient);
+  if (aliasToKey?.has(nKey)) return aliasToKey.get(nKey)!;
   return nameToEmail?.get(nKey) ?? nKey;
 }
 
 export function computeCustomerSummaries(
   orders: OrderLine[],
   catalogMap: Map<string, WineCatalogItem>,
-  settings: AppSettings
+  settings: AppSettings,
+  profiles: CustomerProfile[] = []
 ): CustomerSummary[] {
+  const profileByKey = new Map<string, CustomerProfile>();
+  const aliasToKey = new Map<string, string>();
   const nameToEmail = new Map<string, string>();
+
+  for (const p of profiles) {
+    const cleanEmail = p.email?.trim().toLowerCase();
+    const nKey = normalizedNameKey(p.nom, p.prenom);
+    const primaryKey = cleanEmail || nKey || p.id;
+    profileByKey.set(primaryKey, p);
+    if (cleanEmail) {
+      aliasToKey.set(cleanEmail, primaryKey);
+      if (nKey !== '_') nameToEmail.set(nKey, primaryKey);
+    }
+    if (nKey !== '_') aliasToKey.set(nKey, primaryKey);
+    for (const merged of p.mergedEmails ?? []) {
+      const m = merged.trim().toLowerCase();
+      if (m) aliasToKey.set(m, primaryKey);
+    }
+  }
+
   for (const order of orders) {
     const cleanEmail = order.emailClient?.trim().toLowerCase();
     if (cleanEmail) {
       const nKey = normalizedNameKey(order.nomClient, order.prenomClient);
       if (!nameToEmail.has(nKey)) {
-        nameToEmail.set(nKey, cleanEmail);
+        nameToEmail.set(nKey, aliasToKey.get(cleanEmail) ?? cleanEmail);
       }
     }
   }
 
   const byClient = new Map<string, OrderLine[]>();
 
+  // Inclure tous les profils CRM créés (même sans commande encore)
+  for (const key of profileByKey.keys()) {
+    byClient.set(key, []);
+  }
+
   for (const order of orders) {
-    // Exclure les prélèvements personnels de dégustation du palmarès clients
     if (order.source === 'perso') continue;
-    const key = resolveCustomerKey(order, nameToEmail);
+    const key = resolveCustomerKey(order, nameToEmail, aliasToKey);
     const arr = byClient.get(key) ?? [];
     arr.push(order);
     byClient.set(key, arr);
@@ -365,6 +460,7 @@ export function computeCustomerSummaries(
   const summaries: CustomerSummary[] = [];
 
   for (const [key, clientOrders] of byClient.entries()) {
+    const profile = profileByKey.get(key);
     const validOrders = clientOrders.filter((o) => o.statut !== 'annule');
     const cancelledOrders = clientOrders.filter((o) => o.statut === 'annule');
 
@@ -373,6 +469,7 @@ export function computeCustomerSummaries(
     const orderRefs = new Set(validOrders.map((o) => o.refCommande));
 
     let caTotalTTC = 0;
+    let resteAEncaisserTTC = 0;
     let coutRevientTotalHT = 0;
     let margeTotaleEuro = 0;
     let totalBouteilles = 0;
@@ -384,17 +481,13 @@ export function computeCustomerSummaries(
     for (const o of validOrders) {
       totalBouteilles += o.qte;
       caTotalTTC += o.prixUnitaireTTC * o.qte;
+      resteAEncaisserTTC += getOrderLineUnpaidTTC(o);
 
       const cat = catalogMap.get(o.catalogId);
+      const econ = computeOrderLineEconomics(o, cat, settings);
+      coutRevientTotalHT += econ.coutVinHT + econ.fraisLogistiqueHT;
+      margeTotaleEuro += econ.margeEuroTotal;
       if (cat) {
-        const econ = computeBottleEconomics(
-          cat,
-          settings,
-          o.prixUnitaireTTC,
-          o.tvaRatePct
-        );
-        coutRevientTotalHT += econ.coutTotalHT * o.qte;
-        margeTotaleEuro += econ.margeEuro * o.qte;
         domaineCount.set(
           cat.domaine,
           (domaineCount.get(cat.domaine) ?? 0) + o.qte
@@ -424,12 +517,23 @@ export function computeCustomerSummaries(
 
     summaries.push({
       key,
-      nom: refOrder.nomClient,
-      prenom: refOrder.prenomClient,
-      email: refOrder.emailClient,
+      profileId: profile?.id,
+      customerType: profile?.customerType ?? 'club',
+      nom: profile?.nom || refOrder?.nomClient || '',
+      prenom: profile?.prenom || refOrder?.prenomClient || '',
+      companyName: profile?.companyName,
+      siret: profile?.siret,
+      vatNumber: profile?.vatNumber,
+      email: profile?.email || refOrder?.emailClient || '',
+      phone: profile?.phone,
+      billingAddress: profile?.billingAddress,
+      shippingAddress: profile?.shippingAddress,
+      notes: profile?.notes,
+      mergedEmails: profile?.mergedEmails,
       totalCommandes: orderRefs.size,
       totalBouteilles,
       caTotalTTC,
+      resteAEncaisserTTC,
       margeTotaleEuro,
       margeMoyennePct:
         coutRevientTotalHT > 0
@@ -447,6 +551,66 @@ export function computeCustomerSummaries(
   }
 
   return summaries.sort((a, b) => b.caTotalTTC - a.caTotalTTC);
+}
+
+export function deriveInitialDomains(catalog: WineCatalogItem[]): DomainSupplier[] {
+  const map = new Map<string, DomainSupplier>();
+  for (const item of catalog) {
+    const key = normalizeSearchText(item.domaine);
+    if (!key || map.has(key)) continue;
+    const slug = key.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 48);
+    map.set(key, {
+      id: `dom_${slug || map.size + 1}`,
+      nom: item.domaine.trim(),
+      region: item.region || '',
+      delaiPaiement: '30 jours net',
+    });
+  }
+  return Array.from(map.values()).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+}
+
+export function deriveInitialCustomers(orders: OrderLine[]): CustomerProfile[] {
+  const seen = new Map<string, CustomerProfile>();
+  for (const o of orders) {
+    if (o.source === 'perso') continue;
+    const cleanEmail = o.emailClient?.trim().toLowerCase() ?? '';
+    const nKey = normalizedNameKey(o.nomClient, o.prenomClient);
+    const key = cleanEmail || nKey;
+    if (!key || seen.has(key)) continue;
+    const slug = key.replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 48);
+    seen.set(key, {
+      id: `cust_${slug || seen.size + 1}`,
+      customerType: 'club',
+      nom: o.nomClient.trim(),
+      prenom: o.prenomClient.trim(),
+      email: cleanEmail,
+    });
+  }
+  return Array.from(seen.values());
+}
+
+export function computeNextDocNumber(
+  prefix: 'FA' | 'AV' | 'PO',
+  existingNumbers: string[],
+  year = new Date().getFullYear(),
+  minSeq = 1
+): { docNumber: string; nextSeq: number } {
+  const regex = new RegExp(`^${prefix}-${year}-(\\d+)$`);
+  let maxSeq = Math.max(0, minSeq - 1);
+  for (const num of existingNumbers) {
+    const m = num.match(regex);
+    if (m) {
+      const parsed = parseInt(m[1], 10);
+      if (Number.isFinite(parsed) && parsed > maxSeq) {
+        maxSeq = parsed;
+      }
+    }
+  }
+  const seq = maxSeq + 1;
+  return {
+    docNumber: `${prefix}-${year}-${String(seq).padStart(4, '0')}`,
+    nextSeq: seq + 1,
+  };
 }
 
 export function maskClientName(

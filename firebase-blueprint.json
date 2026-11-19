@@ -1,0 +1,408 @@
+{
+  "entities": {
+    "Workspace": {
+      "title": "Workspace",
+      "description": "Shared wine merchant workspace for team collaboration.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "ownerEmail": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerUid", "ownerEmail", "createdAt", "updatedAt"]
+    },
+    "WorkspaceMember": {
+      "title": "WorkspaceMember",
+      "description": "Authorized member of the wine merchant workspace.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["admin", "operator"] },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "displayName", "role", "workspaceId", "createdAt", "updatedAt"]
+    },
+    "WorkspaceInvite": {
+      "title": "WorkspaceInvite",
+      "description": "Email invitation granting workspace membership on sign-in.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 200 },
+        "role": { "type": "string", "enum": ["admin", "operator"] },
+        "invitedByUid": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["email", "role", "invitedByUid", "workspaceId", "createdAt"]
+    },
+    "WorkspaceSettings": {
+      "title": "WorkspaceSettings",
+      "description": "Company legal details, pricing assumptions, wine list config, and document counters.",
+      "type": "object",
+      "properties": {
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "tvaRate": { "type": "number" },
+        "fraisLogistiqueAmont": { "type": "number" },
+        "fraisLogistiqueAval": { "type": "number" },
+        "fraisLogistiqueParBouteille": { "type": "number" },
+        "tauxMarqueCibleExw": { "type": "number" },
+        "anonymizeClients": { "type": "boolean" },
+        "showcaseTitle": { "type": "string", "maxLength": 160 },
+        "showcaseSubtitle": { "type": "string", "maxLength": 300 },
+        "showcaseShowStock": { "type": "boolean" },
+        "showcaseShowBenchmark": { "type": "boolean" },
+        "showcaseDisplayMode": { "type": "string", "enum": ["ttc", "ht"] },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "companyLegalForm": { "type": "string", "maxLength": 120 },
+        "companyCapital": { "type": "string", "maxLength": 80 },
+        "companyAddress": { "type": "string", "maxLength": 300 },
+        "companySiret": { "type": "string", "maxLength": 60 },
+        "companyRcs": { "type": "string", "maxLength": 120 },
+        "companyVatNumber": { "type": "string", "maxLength": 60 },
+        "companyIban": { "type": "string", "maxLength": 80 },
+        "companyBic": { "type": "string", "maxLength": 40 },
+        "companyEmail": { "type": "string", "maxLength": 160 },
+        "companyPhone": { "type": "string", "maxLength": 60 },
+        "companyWebsite": { "type": "string", "maxLength": 160 },
+        "companyLegalLine": { "type": "string", "maxLength": 500 },
+        "nextInvoiceSeq": { "type": "number" },
+        "nextCreditNoteSeq": { "type": "number" },
+        "nextPoSeq": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workspaceId", "tvaRate", "fraisLogistiqueAmont", "fraisLogistiqueAval", "fraisLogistiqueParBouteille", "tauxMarqueCibleExw", "anonymizeClients", "updatedAt"]
+    },
+    "DomainSupplier": {
+      "title": "DomainSupplier",
+      "description": "Wine estate or supplier profile with commercial terms and allocation notes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "nom": { "type": "string", "maxLength": 160 },
+        "region": { "type": "string", "maxLength": 120 },
+        "contactName": { "type": "string", "maxLength": 120 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 60 },
+        "address": { "type": "string", "maxLength": 300 },
+        "iban": { "type": "string", "maxLength": 80 },
+        "francoPortHT": { "type": "number" },
+        "delaiPaiement": { "type": "string", "maxLength": 120 },
+        "notesAllocation": { "type": "string", "maxLength": 1000 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "nom", "region", "updatedAt"]
+    },
+    "WineCatalogItem": {
+      "title": "WineCatalogItem",
+      "description": "Wine reference in the merchant catalog with pricing, vintage, format, and notes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "vente": { "type": "string", "maxLength": 160 },
+        "dateVente": { "type": "string", "maxLength": 40 },
+        "canal": { "type": "string", "enum": ["Standard", "Club", "WhatsApp"] },
+        "domaine": { "type": "string", "maxLength": 160 },
+        "domaineId": { "type": "string", "maxLength": 128 },
+        "fournisseur": { "type": "string", "maxLength": 160 },
+        "cuvee": { "type": "string", "maxLength": 200 },
+        "millesime": { "type": "string", "maxLength": 20 },
+        "appellation": { "type": "string", "maxLength": 160 },
+        "format": { "type": "string", "enum": ["75 cl", "1,5 L (Magnum)", "37,5 cl", "3 L (Jéroboam)", "Caisse 6"] },
+        "certification": { "type": "string", "enum": ["", "Bio", "Biodynamie", "Nature", "HVE", "Raisonné"] },
+        "apogee": { "type": "string", "maxLength": 60 },
+        "reference": { "type": "string", "maxLength": 260 },
+        "region": { "type": "string", "maxLength": 120 },
+        "color": { "type": "string", "enum": ["Blanc", "Rouge", "Rosé", "Orange", "Effervescent", "Jaune / Oxydatif", "Doux / Liquoreux"] },
+        "tarifAchatHT": { "type": "number" },
+        "prixLbgTTC": { "type": "number" },
+        "benchTTC": { "type": "number" },
+        "benchSource": { "type": "string", "maxLength": 120 },
+        "fraisLogistiqueOverride": { "type": "number" },
+        "dispoPublic": { "type": "boolean" },
+        "tastingNotes": { "type": "string", "maxLength": 600 },
+        "notes": { "type": "string", "maxLength": 600 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "vente", "domaine", "cuvee", "reference", "region", "color", "tarifAchatHT", "prixLbgTTC", "benchSource", "dispoPublic", "updatedAt"]
+    },
+    "SupplierLot": {
+      "title": "SupplierLot",
+      "description": "Supplier purchase batch with reception progress, shipping, and supplier payment status.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "catalogId": { "type": "string", "maxLength": 128 },
+        "domaineId": { "type": "string", "maxLength": 128 },
+        "purchaseOrderId": { "type": "string", "maxLength": 128 },
+        "dateAchat": { "type": "string", "maxLength": 40 },
+        "typeAchat": { "type": "string", "enum": ["avance", "allocation", "cave"] },
+        "qteCommandee": { "type": "number" },
+        "qteRecue": { "type": "number" },
+        "coutUnitaireHT": { "type": "number" },
+        "tvaRatePct": { "type": "number" },
+        "shippingHT": { "type": "number" },
+        "statutLot": { "type": "string", "enum": ["commande_payee", "en_transit", "recu_cave"] },
+        "referenceFacture": { "type": "string", "maxLength": 120 },
+        "paymentStatus": { "type": "string", "enum": ["non_paye", "paye"] },
+        "paymentDueDate": { "type": "string", "maxLength": 40 },
+        "paidAt": { "type": "string", "maxLength": 40 },
+        "origin": { "type": "string", "enum": ["excel_dispos", "excel_status_inferred", "demo", "manual", "po"] },
+        "notes": { "type": "string", "maxLength": 600 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "catalogId", "dateAchat", "typeAchat", "qteCommandee", "qteRecue", "coutUnitaireHT", "statutLot", "referenceFacture", "updatedAt"]
+    },
+    "StockAdjustment": {
+      "title": "StockAdjustment",
+      "description": "Physical cellar stock movement (breakage, corked, tasting, inventory regularization).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "catalogId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 40 },
+        "reason": { "type": "string", "enum": ["casse", "bouchonnee", "degustation", "retour_client", "inventaire"] },
+        "qtyDelta": { "type": "number" },
+        "unitCostHT": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 400 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "catalogId", "date", "reason", "qtyDelta", "unitCostHT", "createdByUid", "createdAt"]
+    },
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "CRM record for individual, Club, or occasional B2B Pro customer.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "customerType": { "type": "string", "enum": ["particulier", "club", "pro"] },
+        "nom": { "type": "string", "maxLength": 120 },
+        "prenom": { "type": "string", "maxLength": 120 },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "siret": { "type": "string", "maxLength": 40 },
+        "vatNumber": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 60 },
+        "billingAddress": { "type": "string", "maxLength": 300 },
+        "shippingAddress": { "type": "string", "maxLength": 300 },
+        "notes": { "type": "string", "maxLength": 800 },
+        "mergedEmails": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "customerType", "nom", "prenom", "email", "updatedAt"]
+    },
+    "OrderLine": {
+      "title": "OrderLine",
+      "description": "Client order line with frozen historical COGS, payment tracking, and shipping details.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 40 },
+        "refCommande": { "type": "string", "maxLength": 120 },
+        "invoiceId": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "maxLength": 80 },
+        "creditNoteId": { "type": "string", "maxLength": 128 },
+        "creditNoteNumber": { "type": "string", "maxLength": 80 },
+        "vente": { "type": "string", "maxLength": 160 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "nomClient": { "type": "string", "maxLength": 120 },
+        "prenomClient": { "type": "string", "maxLength": 120 },
+        "emailClient": { "type": "string", "maxLength": 200 },
+        "catalogId": { "type": "string", "maxLength": 128 },
+        "produitLabel": { "type": "string", "maxLength": 220 },
+        "prixUnitaireTTC": { "type": "number" },
+        "coutAchatUnitaireHT": { "type": "number" },
+        "coutLogistiqueUnitaireHT": { "type": "number" },
+        "tvaRatePct": { "type": "number" },
+        "qte": { "type": "number" },
+        "qteRemise": { "type": "number" },
+        "statut": { "type": "string", "enum": ["attente_reception", "recu_lbg", "remis_client", "annule"] },
+        "source": { "type": "string", "enum": ["helloasso", "direct", "perso", "facture_ia"] },
+        "paymentStatus": { "type": "string", "enum": ["en_attente", "acompte", "paye", "rembourse"] },
+        "paymentMethod": { "type": "string", "enum": ["helloasso", "virement", "cb", "especes", "cheque", "autre"] },
+        "amountPaidTTC": { "type": "number" },
+        "paidAt": { "type": "string", "maxLength": 40 },
+        "deliveryMode": { "type": "string", "enum": ["retrait_cave", "main_propre", "expedition"] },
+        "shippingFeeClientTTC": { "type": "number" },
+        "carrier": { "type": "string", "maxLength": 80 },
+        "trackingNumber": { "type": "string", "maxLength": 120 },
+        "deliveryAddress": { "type": "string", "maxLength": 300 },
+        "codePromo": { "type": "string", "maxLength": 80 },
+        "discountTTC": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 600 },
+        "locked": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "date", "refCommande", "vente", "nomClient", "prenomClient", "emailClient", "catalogId", "produitLabel", "prixUnitaireTTC", "qte", "statut", "source", "updatedAt"]
+    },
+    "FiscalDocument": {
+      "title": "FiscalDocument",
+      "description": "Immutable fiscal invoice or credit note with full legal snapshots.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "docType": { "type": "string", "enum": ["facture", "avoir"] },
+        "invoiceNumber": { "type": "string", "maxLength": 80 },
+        "relatedInvoiceId": { "type": "string", "maxLength": 128 },
+        "relatedInvoiceNumber": { "type": "string", "maxLength": 80 },
+        "refCommande": { "type": "string", "maxLength": 120 },
+        "date": { "type": "string", "maxLength": 40 },
+        "dueDate": { "type": "string", "maxLength": 40 },
+        "vente": { "type": "string", "maxLength": 160 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerSnapshot": { "type": "object" },
+        "companySnapshot": { "type": "object" },
+        "lines": { "type": "array" },
+        "shippingTTC": { "type": "number" },
+        "totalHT": { "type": "number" },
+        "totalTVA": { "type": "number" },
+        "totalTTC": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["en_attente", "acompte", "paye", "rembourse"] },
+        "paymentMethod": { "type": "string", "enum": ["helloasso", "virement", "cb", "especes", "cheque", "autre"] },
+        "paidAt": { "type": "string", "maxLength": 40 },
+        "creditNoteId": { "type": "string", "maxLength": 128 },
+        "creditNoteNumber": { "type": "string", "maxLength": 80 },
+        "notes": { "type": "string", "maxLength": 600 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "docType", "invoiceNumber", "refCommande", "date", "vente", "customerSnapshot", "companySnapshot", "lines", "totalHT", "totalTVA", "totalTTC", "createdByUid", "createdAt"]
+    },
+    "SupplierPurchaseOrder": {
+      "title": "SupplierPurchaseOrder",
+      "description": "Consolidated purchase order sent to a wine estate/supplier.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "poNumber": { "type": "string", "maxLength": 80 },
+        "domaineId": { "type": "string", "maxLength": 128 },
+        "domaineName": { "type": "string", "maxLength": 160 },
+        "date": { "type": "string", "maxLength": 40 },
+        "expectedDeliveryDate": { "type": "string", "maxLength": 40 },
+        "statut": { "type": "string", "enum": ["brouillon", "envoye", "recu"] },
+        "lines": { "type": "array" },
+        "totalBottles": { "type": "number" },
+        "totalHT": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 600 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "poNumber", "domaineName", "date", "statut", "lines", "totalBottles", "totalHT", "createdByUid", "createdAt", "updatedAt"]
+    },
+    "SalesCampaign": {
+      "title": "SalesCampaign",
+      "description": "Planned or active sales campaign / domain allocation.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "nom": { "type": "string", "maxLength": 160 },
+        "domaine": { "type": "string", "maxLength": 160 },
+        "domaineId": { "type": "string", "maxLength": 128 },
+        "dateOuverture": { "type": "string", "maxLength": 40 },
+        "dateCloture": { "type": "string", "maxLength": 40 },
+        "dateLivraisonEstimee": { "type": "string", "maxLength": 40 },
+        "canal": { "type": "string", "enum": ["HelloAsso", "Club", "WhatsApp", "Vente directe"] },
+        "contact": { "type": "string", "maxLength": 100 },
+        "targetBottles": { "type": "number" },
+        "statut": { "type": "string", "enum": ["Envisagée", "Planifiée", "En cours", "En attente domaine", "Clôturée", "Livrée"] },
+        "notes": { "type": "string", "maxLength": 600 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "nom", "domaine", "dateOuverture", "canal", "statut", "updatedAt"]
+    },
+    "OperatingExpense": {
+      "title": "OperatingExpense",
+      "description": "Real operating expense (storage, packaging, carrier invoice, fees, tastings).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "workspaceId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 40 },
+        "category": { "type": "string", "enum": ["stockage", "transport", "emballage", "commissions", "degustation", "autre"] },
+        "label": { "type": "string", "maxLength": 200 },
+        "supplier": { "type": "string", "maxLength": 160 },
+        "amountHT": { "type": "number" },
+        "tvaRatePct": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 500 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "workspaceId", "date", "category", "label", "amountHT", "tvaRatePct", "createdByUid", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/workspaces/{workspaceId}": {
+      "schema": { "$ref": "#/entities/Workspace" },
+      "description": "Root workspace document for the shared wine merchant team."
+    },
+    "/workspaces/{workspaceId}/members/{memberId}": {
+      "schema": { "$ref": "#/entities/WorkspaceMember" },
+      "description": "Authorized team members and their roles."
+    },
+    "/workspaces/{workspaceId}/invites/{inviteId}": {
+      "schema": { "$ref": "#/entities/WorkspaceInvite" },
+      "description": "Invited emails allowed to join the workspace."
+    },
+    "/workspaces/{workspaceId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/WorkspaceSettings" },
+      "description": "Workspace legal details, pricing assumptions, and sequence counters."
+    },
+    "/workspaces/{workspaceId}/domains/{domainId}": {
+      "schema": { "$ref": "#/entities/DomainSupplier" },
+      "description": "Wine estates and suppliers directory."
+    },
+    "/workspaces/{workspaceId}/catalog/{catalogId}": {
+      "schema": { "$ref": "#/entities/WineCatalogItem" },
+      "description": "Wine catalog references and pricing grid."
+    },
+    "/workspaces/{workspaceId}/lots/{lotId}": {
+      "schema": { "$ref": "#/entities/SupplierLot" },
+      "description": "Supplier purchase lots and reception tracking."
+    },
+    "/workspaces/{workspaceId}/stockAdjustments/{adjId}": {
+      "schema": { "$ref": "#/entities/StockAdjustment" },
+      "description": "Cellar inventory adjustments (breakage, corked, tastings)."
+    },
+    "/workspaces/{workspaceId}/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "CRM customer profiles (individual, club, pro)."
+    },
+    "/workspaces/{workspaceId}/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/OrderLine" },
+      "description": "Client orders with frozen COGS, payments, and shipping."
+    },
+    "/workspaces/{workspaceId}/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/FiscalDocument" },
+      "description": "Immutable fiscal invoices and credit notes."
+    },
+    "/workspaces/{workspaceId}/purchaseOrders/{poId}": {
+      "schema": { "$ref": "#/entities/SupplierPurchaseOrder" },
+      "description": "Consolidated supplier purchase orders."
+    },
+    "/workspaces/{workspaceId}/campaigns/{campaignId}": {
+      "schema": { "$ref": "#/entities/SalesCampaign" },
+      "description": "Sales campaign planning."
+    },
+    "/workspaces/{workspaceId}/expenses/{expenseId}": {
+      "schema": { "$ref": "#/entities/OperatingExpense" },
+      "description": "Operating expenses for real P&L."
+    }
+  }
+}

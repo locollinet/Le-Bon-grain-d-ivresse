@@ -1,517 +1,814 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { AlertCircle, SlidersHorizontal, TrendingUp } from 'lucide-react';
-import { AppSettings, OrderLine, WineCatalogItem } from '../types/wine';
+import React, { useMemo, useState } from 'react';
 import {
-  computeBottleEconomics,
+  TrendingUp,
+  Plus,
+  Trash2,
+  Wallet,
+  CreditCard,
+  Package,
+  Receipt,
+  AlertTriangle,
+  X,
+} from 'lucide-react';
+import {
+  AppSettings,
+  ExpenseCategory,
+  FiscalDocument,
+  OperatingExpense,
+  OrderLine,
+  StockAdjustment,
+  StockSummaryRow,
+  SupplierLot,
+  WineCatalogItem,
+} from '../types/wine';
+import {
   computeOrderLineEconomics,
+  formatDateFR,
   formatEUR,
   formatPct,
+  getOrderLineUnpaidTTC,
 } from '../utils/wineMath';
 
 interface FinanceViewProps {
-  catalog: WineCatalogItem[];
   orders: OrderLine[];
+  catalog: WineCatalogItem[];
+  lots: SupplierLot[];
+  stockRows: StockSummaryRow[];
+  adjustments: StockAdjustment[];
+  expenses: OperatingExpense[];
+  invoices: FiscalDocument[];
   settings: AppSettings;
-  initialFocus?: { vente?: string } | null;
-  onUpdateSettings: (next: AppSettings) => void;
+  currentUserUid: string;
+  onSaveExpense: (expense: OperatingExpense) => Promise<void>;
+  onDeleteExpense: (expenseId: string) => Promise<void>;
 }
 
-type BreakdownMode = 'campaign' | 'domaine' | 'cuvee';
+const EXPENSE_CAT_LABELS: Record<ExpenseCategory, string> = {
+  stockage: 'Stockage / Entrepôt cave',
+  transport: 'Transport / Livraisons',
+  emballage: 'Cartons & Emballages',
+  commissions: 'Commissions (HelloAsso / CB)',
+  degustation: 'Dégustations / Événements',
+  autre: 'Autres frais généraux',
+};
+
+function matchesPeriod(
+  isoDate: string,
+  periodType: 'all' | 'year' | 'quarter' | 'month',
+  selectedYear: number,
+  selectedQuarter: number,
+  selectedMonth: number
+): boolean {
+  if (periodType === 'all') return true;
+  if (!isoDate || isoDate.length < 7) return false;
+  const y = parseInt(isoDate.slice(0, 4), 10);
+  const m = parseInt(isoDate.slice(5, 7), 10);
+  if (y !== selectedYear) return false;
+  if (periodType === 'year') return true;
+  if (periodType === 'month') return m === selectedMonth;
+  if (periodType === 'quarter') {
+    const q = Math.floor((m - 1) / 3) + 1;
+    return q === selectedQuarter;
+  }
+  return true;
+}
 
 export const FinanceView: React.FC<FinanceViewProps> = ({
-  catalog,
   orders,
+  catalog,
+  lots,
+  stockRows,
+  adjustments,
+  expenses,
+  invoices,
   settings,
-  initialFocus,
-  onUpdateSettings,
+  currentUserUid,
+  onSaveExpense,
+  onDeleteExpense,
 }) => {
-  const [mode, setMode] = useState<BreakdownMode>('campaign');
+  const currentYear = new Date().getFullYear();
+  const [periodType, setPeriodType] = useState<'all' | 'year' | 'quarter' | 'month'>('all');
+  const [selectedYear, setSelectedYear] = useState<number>(2026);
+  const [selectedQuarter, setSelectedQuarter] = useState<number>(4);
+  const [selectedMonth, setSelectedMonth] = useState<number>(10);
   const [campaignFilter, setCampaignFilter] = useState<string>('all');
 
-  useEffect(() => {
-    if (initialFocus?.vente) {
-      setCampaignFilter(initialFocus.vente);
-    }
-  }, [initialFocus]);
+  // New expense modal
+  const [expModalOpen, setExpModalOpen] = useState(false);
+  const [expDate, setExpDate] = useState(new Date().toISOString().slice(0, 10));
+  const [expCat, setExpCat] = useState<ExpenseCategory>('stockage');
+  const [expLabel, setExpLabel] = useState('');
+  const [expSupplier, setExpSupplier] = useState('');
+  const [expAmountHT, setExpAmountHT] = useState<number>(0);
+  const [expTvaPct, setExpTvaPct] = useState<number>(20);
+  const [expNotes, setExpNotes] = useState('');
+  const [expSaving, setExpSaving] = useState(false);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
     [catalog]
   );
 
-  const uniqueCampaigns = useMemo(
-    () => Array.from(new Set(orders.map((o) => o.vente))).sort(),
-    [orders]
-  );
+  const availableYears = useMemo(() => {
+    const s = new Set<number>([currentYear, 2026, 2025]);
+    for (const o of orders) {
+      const y = parseInt(o.date.slice(0, 4), 10);
+      if (Number.isFinite(y)) s.add(y);
+    }
+    return Array.from(s).sort((a, b) => b - a);
+  }, [orders, currentYear]);
 
-  const activeOrders = useMemo(() => {
-    return orders.filter(
+  const campaigns = useMemo(() => {
+    const s = new Set<string>();
+    for (const o of orders) if (o.vente) s.add(o.vente);
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'fr'));
+  }, [orders]);
+
+  const pnl = useMemo(() => {
+    const filteredOrders = orders.filter(
       (o) =>
         o.statut !== 'annule' &&
-        (campaignFilter === 'all' || o.vente === campaignFilter)
+        (campaignFilter === 'all' || o.vente === campaignFilter) &&
+        matchesPeriod(o.date, periodType, selectedYear, selectedQuarter, selectedMonth)
     );
-  }, [orders, campaignFilter]);
 
-  const pnlSummary = useMemo(() => {
+    const filteredExpenses = expenses.filter((e) =>
+      matchesPeriod(e.date, periodType, selectedYear, selectedQuarter, selectedMonth)
+    );
+
+    const filteredLots = lots.filter((l) =>
+      matchesPeriod(l.dateAchat, periodType, selectedYear, selectedQuarter, selectedMonth)
+    );
+
+    const filteredAdjustments = adjustments.filter((a) =>
+      matchesPeriod(a.date, periodType, selectedYear, selectedQuarter, selectedMonth)
+    );
+
+    const filteredCreditNotes = invoices.filter(
+      (i) =>
+        i.docType === 'avoir' &&
+        matchesPeriod(i.date, periodType, selectedYear, selectedQuarter, selectedMonth)
+    );
+
     let caTTC = 0;
     let caHT = 0;
+    let shippingClientHT = 0;
     let coutVinHT = 0;
-    let fraisLogistique = 0;
-    let margeNette = 0;
-    let totalBottles = 0;
-    let persoBottles = 0;
-    let benchSumTTC = 0;
-    let lbgVsBenchSumTTC = 0;
+    let fraisLogistiqueTheoriqueHT = 0;
+    let margeCommercialeHT = 0;
+    let coutPersoHT = 0;
+    let bottlesSold = 0;
+    let bottlesPerso = 0;
 
-    for (const o of activeOrders) {
-      const cat = catalogMap.get(o.catalogId);
-      const lineEcon = computeOrderLineEconomics(o, cat, settings);
-      if (lineEcon.isPerso) {
-        persoBottles += o.qte;
-        continue;
-      }
-
-      totalBottles += o.qte;
-      caTTC += lineEcon.caTTC;
-      caHT += lineEcon.caHT;
-      coutVinHT += lineEcon.coutVinHT;
-      fraisLogistique += lineEcon.fraisLogistiqueHT;
-      margeNette += lineEcon.margeEuroTotal;
-
-      if (cat?.benchTTC && cat.benchTTC > 0) {
-        benchSumTTC += cat.benchTTC * o.qte;
-        lbgVsBenchSumTTC += o.prixUnitaireTTC * o.qte;
-      }
-    }
-
-    const tvaCollectee = caTTC - caHT;
-    const totalCostHT = coutVinHT + fraisLogistique;
-    const margePct = totalCostHT > 0 ? (margeNette / totalCostHT) * 100 : 0;
-    const avgDiscountVsBench =
-      benchSumTTC > 0
-        ? ((lbgVsBenchSumTTC - benchSumTTC) / benchSumTTC) * 100
-        : 0;
-
-    return {
-      totalBottles,
-      persoBottles,
-      caTTC,
-      tvaCollectee,
-      caHT,
-      coutVinHT,
-      fraisLogistique,
-      margeNette,
-      margePct,
-      avgDiscountVsBench,
-    };
-  }, [activeOrders, catalogMap, settings]);
-
-  const groupedRows = useMemo(() => {
-    const map = new Map<
+    const byCampaign = new Map<
       string,
       {
-        key: string;
-        sublabel: string;
+        vente: string;
         bottles: number;
         caTTC: number;
         caHT: number;
         coutVinHT: number;
-        coutTotalHT: number;
-        margeNette: number;
-        benchDeltaSum: number;
-        benchBaseSum: number;
+        logHT: number;
+        margeHT: number;
       }
     >();
 
-    for (const o of activeOrders) {
-      const cat = catalogMap.get(o.catalogId);
-      const lineEcon = computeOrderLineEconomics(o, cat, settings);
-      if (lineEcon.isPerso) continue;
-
-      let key = o.vente;
-      let sublabel = '';
-
-      if (mode === 'domaine') {
-        key = cat?.domaine ?? 'Autre domaine';
-        sublabel = cat?.region ?? '';
-      } else if (mode === 'cuvee') {
-        key = cat ? `${cat.domaine} — ${cat.cuvee}` : o.produitLabel;
-        sublabel = o.vente;
-      } else {
-        sublabel = cat?.region ?? 'Campagne';
+    for (const o of filteredOrders) {
+      const econ = computeOrderLineEconomics(o, catalogMap.get(o.catalogId), settings);
+      if (econ.isPerso) {
+        coutPersoHT += econ.coutVinHT;
+        bottlesPerso += o.qte;
+        continue;
       }
 
-      const existing = map.get(key) ?? {
-        key,
-        sublabel,
+      const tvaRate =
+        o.tvaRatePct !== undefined ? o.tvaRatePct / 100 : settings.tvaRate;
+      const shipHT = (o.shippingFeeClientTTC ?? 0) / (1 + tvaRate);
+
+      bottlesSold += o.qte;
+      caTTC += econ.caTTC + (o.shippingFeeClientTTC ?? 0);
+      caHT += econ.caHT;
+      shippingClientHT += shipHT;
+      coutVinHT += econ.coutVinHT;
+      fraisLogistiqueTheoriqueHT += econ.fraisLogistiqueHT;
+      margeCommercialeHT += econ.margeEuroTotal;
+
+      const campKey = o.vente || 'Sans campagne';
+      const entry = byCampaign.get(campKey) ?? {
+        vente: campKey,
         bottles: 0,
         caTTC: 0,
         caHT: 0,
         coutVinHT: 0,
-        coutTotalHT: 0,
-        margeNette: 0,
-        benchDeltaSum: 0,
-        benchBaseSum: 0,
+        logHT: 0,
+        margeHT: 0,
       };
-
-      existing.bottles += o.qte;
-      existing.caTTC += lineEcon.caTTC;
-      existing.caHT += lineEcon.caHT;
-      existing.coutVinHT += lineEcon.coutVinHT;
-      existing.coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
-      existing.margeNette += lineEcon.margeEuroTotal;
-
-      if (cat?.benchTTC && cat.benchTTC > 0) {
-        existing.benchBaseSum += cat.benchTTC * o.qte;
-        existing.benchDeltaSum += (o.prixUnitaireTTC - cat.benchTTC) * o.qte;
-      }
-
-      map.set(key, existing);
+      entry.bottles += o.qte;
+      entry.caTTC += econ.caTTC;
+      entry.caHT += econ.caHT;
+      entry.coutVinHT += econ.coutVinHT;
+      entry.logHT += econ.fraisLogistiqueHT;
+      entry.margeHT += econ.margeEuroTotal;
+      byCampaign.set(campKey, entry);
     }
 
-    return Array.from(map.values()).sort((a, b) => b.margeNette - a.margeNette);
-  }, [activeOrders, catalogMap, mode, settings]);
+    const totalExpensesHT = filteredExpenses.reduce((s, e) => s + e.amountHT, 0);
+    const actualLotShippingHT = filteredLots.reduce(
+      (s, l) => s + (l.shippingHT ?? 0),
+      0
+    );
+    const coutCasseAjustementHT = filteredAdjustments.reduce(
+      (s, a) => s + (a.qtyDelta < 0 ? Math.abs(a.qtyDelta) * a.unitCostHT : 0),
+      0
+    );
+    const totalAvoirsHT = filteredCreditNotes.reduce((s, av) => s + Math.abs(av.totalHT), 0);
 
-  const maxBarCA = useMemo(
-    () => Math.max(1, ...groupedRows.map((r) => r.caTTC)),
-    [groupedRows]
-  );
+    // Marge brute vins (CA HT + port refacturé - coût vin HT)
+    const margeBruteVinsHT = caHT + shippingClientHT - coutVinHT;
+    // Résultat d'exploitation net réel (après charges réelles, port lots, sorties perso & casse)
+    const resultatNetExploitationHT =
+      margeBruteVinsHT -
+      actualLotShippingHT -
+      totalExpensesHT -
+      coutPersoHT -
+      coutCasseAjustementHT;
 
-  const negativeMarginCuvees = useMemo(() => {
-    return catalog
-      .map((c) => ({
-        item: c,
-        econ: computeBottleEconomics(c, settings),
-      }))
-      .filter((x) => x.econ.margeEuro < 1.0)
-      .sort((a, b) => a.econ.margeEuro - b.econ.margeEuro);
-  }, [catalog, settings]);
+    // Treasury (global current snapshot, not period-truncated)
+    const resteAEncaisserTTC = orders.reduce(
+      (s, o) => s + getOrderLineUnpaidTTC(o),
+      0
+    );
+    const dettesDomainesHT = lots
+      .filter((l) => l.paymentStatus === 'non_paye')
+      .reduce((s, l) => s + l.coutUnitaireHT * l.qteCommandee + (l.shippingHT ?? 0), 0);
+    const stockValoriseHT = stockRows.reduce((s, r) => s + r.capitalImmobiliseHT, 0);
+
+    return {
+      caTTC,
+      caHT,
+      shippingClientHT,
+      coutVinHT,
+      margeBruteVinsHT,
+      fraisLogistiqueTheoriqueHT,
+      actualLotShippingHT,
+      margeCommercialeHT,
+      totalExpensesHT,
+      coutPersoHT,
+      coutCasseAjustementHT,
+      resultatNetExploitationHT,
+      totalAvoirsHT,
+      bottlesSold,
+      bottlesPerso,
+      filteredExpenses,
+      campaignsBreakdown: Array.from(byCampaign.values()).sort(
+        (a, b) => b.caTTC - a.caTTC
+      ),
+      resteAEncaisserTTC,
+      dettesDomainesHT,
+      stockValoriseHT,
+    };
+  }, [
+    orders,
+    expenses,
+    lots,
+    adjustments,
+    invoices,
+    stockRows,
+    catalogMap,
+    settings,
+    campaignFilter,
+    periodType,
+    selectedYear,
+    selectedQuarter,
+    selectedMonth,
+  ]);
+
+  const handleAddExpense = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!expLabel.trim() || expAmountHT <= 0) return;
+    setExpSaving(true);
+    try {
+      const ts = new Date().toISOString();
+      await onSaveExpense({
+        id: `exp_${Date.now()}`,
+        date: expDate,
+        category: expCat,
+        label: expLabel.trim(),
+        supplier: expSupplier.trim() || undefined,
+        amountHT: expAmountHT,
+        tvaRatePct: expTvaPct,
+        notes: expNotes.trim() || undefined,
+        createdByUid: currentUserUid,
+        createdAt: ts,
+        updatedAt: ts,
+      });
+      setExpModalOpen(false);
+      setExpLabel('');
+      setExpSupplier('');
+      setExpAmountHT(0);
+      setExpNotes('');
+    } finally {
+      setExpSaving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413] tracking-tight">
-            Bilans financiers &amp; rentabilité
+          <h1 className="font-serif text-3xl font-semibold text-[#18181B]">
+            Finances, Marges &amp; Trésorerie
           </h1>
-          <p className="text-sm text-[#6B6B66] mt-1">
-            Comprenez exactement ce qui génère de la marge nette, par vente,
-            par domaine et par cuvée.
+          <p className="text-sm text-[#6B6A65] mt-1">
+            Compte de résultat filtrable par période, charges d’exploitation réelles et position de trésorerie.
           </p>
         </div>
+        <button
+          onClick={() => setExpModalOpen(true)}
+          className="px-4 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] text-white text-xs font-medium flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+        >
+          <Plus className="w-4 h-4" />
+          Ajouter une charge
+        </button>
+      </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+      {/* Period & Campaign Filter Bar */}
+      <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 flex flex-wrap items-center gap-3 text-xs">
+        <div className="inline-flex rounded-lg border border-[#E5E4DF] p-0.5 bg-[#F6F6F4]">
+          {(
+            [
+              ['all', 'Tout'],
+              ['year', 'Année'],
+              ['quarter', 'Trimestre'],
+              ['month', 'Mois'],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setPeriodType(id)}
+              className={`px-3 py-1 rounded-md font-medium cursor-pointer ${
+                periodType === id
+                  ? 'bg-white text-[#721C24] shadow-xs'
+                  : 'text-[#6B6A65]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {periodType !== 'all' && (
           <select
-            value={campaignFilter}
-            onChange={(e) => setCampaignFilter(e.target.value)}
-            className="px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Number(e.target.value))}
+            className="px-2.5 py-1.5 border border-[#E5E4DF] rounded-lg bg-white font-mono"
           >
-            <option value="all">Toutes les ventes cumulées</option>
-            {uniqueCampaigns.map((v) => (
-              <option key={v} value={v}>
-                {v}
+            {availableYears.map((y) => (
+              <option key={y} value={y}>
+                {y}
               </option>
             ))}
           </select>
+        )}
+
+        {periodType === 'quarter' && (
+          <select
+            value={selectedQuarter}
+            onChange={(e) => setSelectedQuarter(Number(e.target.value))}
+            className="px-2.5 py-1.5 border border-[#E5E4DF] rounded-lg bg-white"
+          >
+            <option value={1}>T1 (Jan–Mar)</option>
+            <option value={2}>T2 (Avr–Juin)</option>
+            <option value={3}>T3 (Juil–Sep)</option>
+            <option value={4}>T4 (Oct–Déc)</option>
+          </select>
+        )}
+
+        {periodType === 'month' && (
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(Number(e.target.value))}
+            className="px-2.5 py-1.5 border border-[#E5E4DF] rounded-lg bg-white"
+          >
+            {[
+              'Janvier',
+              'Février',
+              'Mars',
+              'Avril',
+              'Mai',
+              'Juin',
+              'Juillet',
+              'Août',
+              'Septembre',
+              'Octobre',
+              'Novembre',
+              'Décembre',
+            ].map((m, idx) => (
+              <option key={m} value={idx + 1}>
+                {m}
+              </option>
+            ))}
+          </select>
+        )}
+
+        <select
+          value={campaignFilter}
+          onChange={(e) => setCampaignFilter(e.target.value)}
+          className="px-2.5 py-1.5 border border-[#E5E4DF] rounded-lg bg-white ml-auto"
+        >
+          <option value="all">Toutes les campagnes</option>
+          {campaigns.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Treasury Strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-[#6B6A65] uppercase tracking-wider">
+            <span>Créances clients (à encaisser)</span>
+            <Wallet className="w-4 h-4 text-[#B45309]" />
+          </div>
+          <div className="mt-1.5 font-mono text-2xl font-semibold text-[#B45309] tabular-nums">
+            {formatEUR(pnl.resteAEncaisserTTC)}
+          </div>
+          <div className="text-xs text-[#6B6A65] mt-0.5">TTC en attente de règlement</div>
+        </div>
+
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-[#6B6A65] uppercase tracking-wider">
+            <span>Dettes domaines (à régler)</span>
+            <CreditCard className="w-4 h-4 text-[#B91C1C]" />
+          </div>
+          <div className="mt-1.5 font-mono text-2xl font-semibold text-[#B91C1C] tabular-nums">
+            {formatEUR(pnl.dettesDomainesHT)}
+          </div>
+          <div className="text-xs text-[#6B6A65] mt-0.5">HT sur lots non encore réglés</div>
+        </div>
+
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
+          <div className="flex items-center justify-between text-xs text-[#6B6A65] uppercase tracking-wider">
+            <span>Stock valorisé (cave + payé)</span>
+            <Package className="w-4 h-4 text-[#721C24]" />
+          </div>
+          <div className="mt-1.5 font-mono text-2xl font-semibold text-[#18181B] tabular-nums">
+            {formatEUR(pnl.stockValoriseHT)}
+          </div>
+          <div className="text-xs text-[#6B6A65] mt-0.5">Coût moyen pondéré HT</div>
         </div>
       </div>
 
-      {/* P&L Waterfall Card */}
-      <div className="bg-white border border-[#E5E4DF] rounded-xl p-6 space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#ECEAE4] pb-4">
-          <div className="flex items-center gap-2">
+      {/* P&L Waterfall */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-6 bg-white border border-[#E5E4DF] rounded-xl p-5 space-y-3">
+          <div className="flex items-center gap-2 pb-2 border-b border-[#E5E4DF]">
             <TrendingUp className="w-4 h-4 text-[#721C24]" />
-            <h2 className="text-base font-semibold text-[#141413]">
-              Compte de résultat synthétique (
-              {campaignFilter === 'all' ? 'Toutes ventes' : campaignFilter})
+            <h2 className="font-serif text-xl font-semibold">
+              Compte de résultat synthétique (HT)
             </h2>
           </div>
 
-          {/* Interactive Assumption Control (Amont + Aval + Marque EXW) */}
-          <div className="flex flex-wrap items-center gap-3 text-xs text-[#6B6B66]">
-            <div className="flex items-center gap-1.5">
-              <SlidersHorizontal className="w-3.5 h-3.5" />
-              <span>Amont :</span>
-              <input
-                type="number"
-                step="0.25"
-                min="0"
-                max="10"
-                value={settings.fraisLogistiqueAmont}
-                onChange={(e) => {
-                  const raw = Number(e.target.value);
-                  const amont = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-                  onUpdateSettings({
-                    ...settings,
-                    fraisLogistiqueAmont: amont,
-                    fraisLogistiqueParBouteille: amont + settings.fraisLogistiqueAval,
-                  });
-                }}
-                className="w-16 px-2 py-1 font-mono-num text-[#141413] bg-[#FAF9F7] border border-[#D8D6D0] rounded"
-              />
-              <span>€</span>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-[#6B6A65]">
+                Chiffre d’affaires vins HT ({pnl.bottlesSold} btl)
+              </span>
+              <span className="font-mono font-medium">{formatEUR(pnl.caHT)}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <span>Aval :</span>
-              <input
-                type="number"
-                step="0.25"
-                min="0"
-                max="15"
-                value={settings.fraisLogistiqueAval}
-                onChange={(e) => {
-                  const raw = Number(e.target.value);
-                  const aval = Number.isFinite(raw) ? Math.max(0, raw) : 0;
-                  onUpdateSettings({
-                    ...settings,
-                    fraisLogistiqueAval: aval,
-                    fraisLogistiqueParBouteille: settings.fraisLogistiqueAmont + aval,
-                  });
-                }}
-                className="w-16 px-2 py-1 font-mono-num text-[#141413] bg-[#FAF9F7] border border-[#D8D6D0] rounded"
-              />
-              <span>€ HT</span>
+            {pnl.shippingClientHT > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-[#6B6A65]">+ Port refacturé clients HT</span>
+                <span className="font-mono">{formatEUR(pnl.shippingClientHT)}</span>
+              </div>
+            )}
+            <div className="flex justify-between">
+              <span className="text-[#6B6A65]">− Coût d’achat vins HT (EXW figé)</span>
+              <span className="font-mono text-[#B91C1C]">
+                -{formatEUR(pnl.coutVinHT)}
+              </span>
             </div>
+
+            <div className="flex justify-between pt-2 border-t border-[#E5E4DF] font-semibold">
+              <span>= Marge brute vins HT</span>
+              <span className="font-mono text-[#18181B]">
+                {formatEUR(pnl.margeBruteVinsHT)}
+              </span>
+            </div>
+
+            <div className="flex justify-between text-xs text-[#6B6A65] pt-1">
+              <span>− Port réel facturé sur lots domaines HT</span>
+              <span className="font-mono">-{formatEUR(pnl.actualLotShippingHT)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-[#6B6A65]">
+              <span>− Charges d’exploitation saisies HT</span>
+              <span className="font-mono">-{formatEUR(pnl.totalExpensesHT)}</span>
+            </div>
+            {(pnl.coutPersoHT > 0 || pnl.coutCasseAjustementHT > 0) && (
+              <div className="flex justify-between text-xs text-[#B45309]">
+                <span className="flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  − Sorties cave perso ({pnl.bottlesPerso} btl) &amp; casse/dégust. HT
+                </span>
+                <span className="font-mono">
+                  -{formatEUR(pnl.coutPersoHT + pnl.coutCasseAjustementHT)}
+                </span>
+              </div>
+            )}
+
+            <div className="flex justify-between pt-3 border-t-2 border-[#18181B] text-base font-semibold">
+              <span>= Résultat d’exploitation net HT</span>
+              <span
+                className={`font-mono ${
+                  pnl.resultatNetExploitationHT >= 0
+                    ? 'text-[#15803D]'
+                    : 'text-[#B91C1C]'
+                }`}
+              >
+                {formatEUR(pnl.resultatNetExploitationHT, true)}
+              </span>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-[#E5E4DF] text-xs text-[#6B6A65] space-y-1">
+            <div className="flex justify-between">
+              <span>Rappel : Marge commerciale modèle (forfait logistique {formatEUR(pnl.fraisLogistiqueTheoriqueHT)})</span>
+              <span className="font-mono font-medium text-[#18181B]">
+                {formatEUR(pnl.margeCommercialeHT, true)}
+              </span>
+            </div>
+            {pnl.totalAvoirsHT > 0 && (
+              <div className="flex justify-between text-[#B45309]">
+                <span>Avoirs émis sur la période (déjà annulés)</span>
+                <span className="font-mono">{formatEUR(pnl.totalAvoirsHT)} HT</span>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <div>
-            <div className="text-xs text-[#6B6B66]">CA Encaissé TTC</div>
-            <div className="mt-1 text-lg font-semibold font-mono-num text-[#141413]">
-              {formatEUR(pnlSummary.caTTC)}
+        {/* Operating Expenses List */}
+        <div className="lg:col-span-6 bg-white border border-[#E5E4DF] rounded-xl overflow-hidden flex flex-col">
+          <div className="p-5 border-b border-[#E5E4DF] flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Receipt className="w-4 h-4 text-[#721C24]" />
+              <h2 className="font-serif text-xl font-semibold">
+                Charges d’exploitation ({pnl.filteredExpenses.length})
+              </h2>
             </div>
-            <div className="text-[11px] text-[#6B6B66] mt-0.5 tabular-nums">
-              {pnlSummary.totalBottles} btl validées
-            </div>
+            <span className="font-mono text-sm font-semibold text-[#B91C1C]">
+              {formatEUR(pnl.totalExpensesHT)} HT
+            </span>
           </div>
 
-          <div>
-            <div className="text-xs text-[#6B6B66]">TVA Collectée (20 %)</div>
-            <div className="mt-1 text-lg font-semibold font-mono-num text-[#6B6B66]">
-              -{formatEUR(pnlSummary.tvaCollectee)}
-            </div>
-            <div className="text-[11px] text-[#6B6B66] mt-0.5 tabular-nums">
-              CA HT : {formatEUR(pnlSummary.caHT)}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-[#6B6B66]">Coût d’achat vin HT</div>
-            <div className="mt-1 text-lg font-semibold font-mono-num text-[#6B6B66]">
-              -{formatEUR(pnlSummary.coutVinHT)}
-            </div>
-            <div className="text-[11px] text-[#6B6B66] mt-0.5">
-              Factures domaines
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-[#6B6B66]">Port &amp; emballage HT</div>
-            <div className="mt-1 text-lg font-semibold font-mono-num text-[#6B6B66]">
-              -{formatEUR(pnlSummary.fraisLogistique)}
-            </div>
-            <div className="text-[11px] text-[#6B6B66] mt-0.5">
-              Transport &amp; cartons
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-[#6B6B66]">Bénéfice Net Réel</div>
-            <div
-              className={`mt-1 text-xl font-bold font-mono-num ${
-                pnlSummary.margeNette >= 0
-                  ? 'text-[#15803D]'
-                  : 'text-[#B91C1C]'
-              }`}
-            >
-              {formatEUR(pnlSummary.margeNette, true)}
-            </div>
-            <div className="text-[11px] font-medium text-[#15803D] mt-0.5 tabular-nums">
-              Marge nette : {formatPct(pnlSummary.margePct)}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-[#6B6B66]">Positionnement Marché</div>
-            <div className="mt-1 text-lg font-semibold font-mono-num text-[#721C24]">
-              {formatPct(pnlSummary.avgDiscountVsBench, true)}
-            </div>
-            <div className="text-[11px] text-[#6B6B66] mt-0.5">
-              vs Benchmark caviste
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Mode Switch + Visual Bar Chart & Table */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Main Breakdown (2 cols) */}
-        <div className="xl:col-span-2 bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4 border-b border-[#E5E4DF]">
-            <h2 className="text-base font-semibold text-[#141413]">
-              Décomposition de la rentabilité
-            </h2>
-            <div className="flex items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg">
-              {(
-                [
-                  ['campaign', 'Par vente'],
-                  ['domaine', 'Par domaine'],
-                  ['cuvee', 'Par cuvée'],
-                ] as const
-              ).map(([k, label]) => (
-                <button
-                  key={k}
-                  onClick={() => setMode(k)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                    mode === k
-                      ? 'bg-white text-[#141413] shadow-sm'
-                      : 'text-[#6B6B66] hover:text-[#141413]'
-                  }`}
+          <div className="divide-y divide-[#E5E4DF] flex-1 overflow-y-auto max-h-[360px]">
+            {pnl.filteredExpenses
+              .slice()
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((exp) => (
+                <div
+                  key={exp.id}
+                  className="p-3.5 flex items-center justify-between gap-3 text-sm"
                 >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
-                  <th className="py-3 px-5 font-medium">
-                    {mode === 'campaign'
-                      ? 'Vente'
-                      : mode === 'domaine'
-                        ? 'Domaine'
-                        : 'Cuvée'}
-                  </th>
-                  <th className="py-3 px-3 font-medium text-right">Btl</th>
-                  <th className="py-3 px-4 font-medium text-right">CA TTC</th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Achat HT
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Marge nette €
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">Marge %</th>
-                  <th className="py-3 px-5 font-medium text-right">
-                    vs Marché
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#ECEAE4]">
-                {groupedRows.map((r) => {
-                  const pct =
-                    r.coutTotalHT > 0 ? (r.margeNette / r.coutTotalHT) * 100 : 0;
-                  const benchPct =
-                    r.benchBaseSum > 0
-                      ? (r.benchDeltaSum / r.benchBaseSum) * 100
-                      : null;
-                  const barWidth = Math.max(4, (r.caTTC / maxBarCA) * 100);
-
-                  return (
-                    <tr
-                      key={r.key}
-                      className="hover:bg-[#FAF9F7] transition-colors"
-                    >
-                      <td className="py-3 px-5">
-                        <div className="font-medium text-[#141413]">
-                          {r.key}
-                        </div>
-                        <div className="mt-1.5 w-full max-w-[200px] h-1.5 bg-[#ECEAE4] rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-[#721C24]"
-                            style={{ width: `${barWidth}%` }}
-                          />
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono-num">
-                        {r.bottles}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono-num font-medium">
-                        {formatEUR(r.caTTC)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono-num text-[#6B6B66]">
-                        {formatEUR(r.coutVinHT)}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono-num font-semibold ${
-                          r.margeNette >= 0
-                            ? 'text-[#15803D]'
-                            : 'text-[#B91C1C]'
-                        }`}
-                      >
-                        {formatEUR(r.margeNette, true)}
-                      </td>
-                      <td
-                        className={`py-3 px-4 text-right font-mono-num ${
-                          pct < 5 ? 'text-[#B45309]' : 'text-[#141413]'
-                        }`}
-                      >
-                        {formatPct(pct)}
-                      </td>
-                      <td className="py-3 px-5 text-right font-mono-num text-xs text-[#6B6B66]">
-                        {benchPct !== null ? formatPct(benchPct, true) : '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Right Panel: Margin Watchlist */}
-        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5 space-y-4 h-fit">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-[#B91C1C]" />
-            <h2 className="text-base font-semibold text-[#141413]">
-              Cuvées à marge faible ou négative
-            </h2>
-          </div>
-          <p className="text-xs text-[#6B6B66] leading-relaxed">
-            Ces références dégagent moins de 1,00 € net par bouteille après TVA
-            et port. Un ajustement de +2 € à +4 € TTC reste souvent bien
-            en-dessous du benchmark caviste.
-          </p>
-
-          <div className="divide-y divide-[#ECEAE4]">
-            {negativeMarginCuvees.map(({ item, econ }) => (
-              <div key={item.id} className="py-3 first:pt-0 last:pb-0">
-                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <div className="text-sm font-medium text-[#141413]">
-                      {item.cuvee}
-                    </div>
-                    <div className="text-xs text-[#6B6B66]">
-                      {item.domaine} · LBG {formatEUR(item.prixLbgTTC)}
-                      {item.benchTTC
-                        ? ` vs Bench ${formatEUR(item.benchTTC)}`
-                        : ''}
+                    <div className="font-medium text-[#18181B]">{exp.label}</div>
+                    <div className="text-xs text-[#6B6A65]">
+                      {formatDateFR(exp.date)} · {EXPENSE_CAT_LABELS[exp.category]}
+                      {exp.supplier ? ` · ${exp.supplier}` : ''}
                     </div>
                   </div>
-                  <div className="text-right font-mono-num shrink-0">
-                    <div
-                      className={`text-sm font-semibold ${
-                        econ.margeEuro < 0
-                          ? 'text-[#B91C1C]'
-                          : 'text-[#B45309]'
-                      }`}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <div className="font-mono font-semibold text-[#18181B]">
+                        {formatEUR(exp.amountHT)} HT
+                      </div>
+                      <div className="text-[10px] font-mono text-[#6B6A65]">
+                        TVA {exp.tvaRatePct}%
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => onDeleteExpense(exp.id)}
+                      className="p-1 text-[#6B6A65] hover:text-[#B91C1C] cursor-pointer"
                     >
-                      {formatEUR(econ.margeEuro, true)}
-                    </div>
-                    <div className="text-[11px] text-[#6B6B66]">
-                      {formatPct(econ.margePct)}
-                    </div>
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
+              ))}
+            {pnl.filteredExpenses.length === 0 && (
+              <div className="p-8 text-center text-xs text-[#6B6A65]">
+                Aucune charge enregistrée sur cette période (stockage, transport, emballage, commissions…).
               </div>
-            ))}
+            )}
           </div>
         </div>
       </div>
+
+      {/* Breakdown by Campaign */}
+      <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+        <div className="p-5 border-b border-[#E5E4DF]">
+          <h2 className="font-serif text-xl font-semibold">
+            Rentabilité par campagne / vente
+          </h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+              <tr>
+                <th className="text-left py-2.5 px-4 font-medium">Campagne</th>
+                <th className="text-right py-2.5 px-3 font-medium">Btl</th>
+                <th className="text-right py-2.5 px-3 font-medium">CA TTC</th>
+                <th className="text-right py-2.5 px-3 font-medium">CA HT</th>
+                <th className="text-right py-2.5 px-3 font-medium">Achat HT</th>
+                <th className="text-right py-2.5 px-3 font-medium">Marge nette €</th>
+                <th className="text-right py-2.5 px-4 font-medium">Taux net</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E5E4DF]">
+              {pnl.campaignsBreakdown.map((c) => {
+                const cost = c.coutVinHT + c.logHT;
+                const pct = cost > 0 ? (c.margeHT / cost) * 100 : 0;
+                return (
+                  <tr key={c.vente} className="hover:bg-[#FAF9F6]">
+                    <td className="py-2.5 px-4 font-medium text-[#18181B]">
+                      {c.vente}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono">{c.bottles}</td>
+                    <td className="py-2.5 px-3 text-right font-mono">
+                      {formatEUR(c.caTTC)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono">
+                      {formatEUR(c.caHT)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-[#6B6A65]">
+                      {formatEUR(c.coutVinHT)}
+                    </td>
+                    <td
+                      className={`py-2.5 px-3 text-right font-mono font-semibold ${
+                        c.margeHT >= 0 ? 'text-[#15803D]' : 'text-[#B91C1C]'
+                      }`}
+                    >
+                      {formatEUR(c.margeHT, true)}
+                    </td>
+                    <td className="py-2.5 px-4 text-right font-mono text-xs">
+                      {formatPct(pct)}
+                    </td>
+                  </tr>
+                );
+              })}
+              {pnl.campaignsBreakdown.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-xs text-[#6B6A65]">
+                    Aucune vente sur cette période.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Add Operating Expense Modal */}
+      {expModalOpen && (
+        <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleAddExpense}
+            className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-md p-6 space-y-4 text-sm"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E4DF]">
+              <h3 className="font-serif text-xl font-semibold">
+                Nouvelle charge d’exploitation
+              </h3>
+              <button
+                type="button"
+                onClick={() => setExpModalOpen(false)}
+                className="p-1 text-[#6B6A65] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={expDate}
+                  onChange={(e) => setExpDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Catégorie
+                </label>
+                <select
+                  value={expCat}
+                  onChange={(e) => setExpCat(e.target.value as ExpenseCategory)}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+                >
+                  {Object.entries(EXPENSE_CAT_LABELS).map(([k, l]) => (
+                    <option key={k} value={k}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Libellé *
+              </label>
+              <input
+                required
+                value={expLabel}
+                onChange={(e) => setExpLabel(e.target.value)}
+                placeholder="ex: Loyer garde-vin octobre, Cartons 6 btl…"
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Fournisseur / Prestataire
+              </label>
+              <input
+                value={expSupplier}
+                onChange={(e) => setExpSupplier(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Montant HT (€) *
+                </label>
+                <input
+                  required
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={expAmountHT || ''}
+                  onChange={(e) =>
+                    setExpAmountHT(Math.max(0, Number(e.target.value) || 0))
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  TVA (%)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="30"
+                  step="0.5"
+                  value={expTvaPct}
+                  onChange={(e) =>
+                    setExpTvaPct(Math.max(0, Number(e.target.value) || 0))
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Notes
+              </label>
+              <input
+                value={expNotes}
+                onChange={(e) => setExpNotes(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E4DF]">
+              <button
+                type="button"
+                onClick={() => setExpModalOpen(false)}
+                className="px-4 py-2 rounded-lg border border-[#E5E4DF] cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={expSaving}
+                className="px-4 py-2 rounded-lg bg-[#721C24] text-white font-medium cursor-pointer"
+              >
+                {expSaving ? 'Enregistrement…' : 'Enregistrer la charge'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 };

@@ -1,25 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  ClipboardPaste,
-  Download,
-  Pencil,
-  Plus,
   Search,
+  Upload,
+  Plus,
+  Download,
+  Truck,
+  CheckCircle2,
+  Edit3,
+  Printer,
   Trash2,
   X,
+  Lock,
+  Wallet,
 } from 'lucide-react';
 import {
   AppSettings,
+  DeliveryMode,
   OrderLine,
   OrderStatus,
+  PaymentMethod,
+  PaymentStatus,
   WineCatalogItem,
 } from '../types/wine';
 import {
-  computeOrderLineEconomics,
   formatDateFR,
   formatEUR,
-  formatPct,
+  getEffectiveOrderPaymentStatus,
+  getOrderLineUnpaidTTC,
   maskClientName,
+  maskEmail,
   normalizeSearchText,
 } from '../utils/wineMath';
 
@@ -27,129 +36,146 @@ interface OrdersViewProps {
   orders: OrderLine[];
   catalog: WineCatalogItem[];
   settings: AppSettings;
-  initialFocus?: { search?: string; vente?: string } | null;
-  onUpdateOrderStatus: (orderId: string, statut: OrderStatus) => void;
-  onUpdateOrder?: (updated: OrderLine) => void;
-  onBulkUpdateCampaignStatus: (
-    vente: string,
-    fromStatus: OrderStatus,
-    toStatus: OrderStatus
-  ) => void;
-  onDeleteOrder: (orderId: string) => void;
-  onOpenImport: () => void;
+  onUpdateOrder: (order: OrderLine) => Promise<void>;
+  onDeleteOrder: (orderId: string) => Promise<void>;
+  onMarkCampaignDelivered: (vente: string) => Promise<void>;
+  onOpenImportHelloAsso: () => void;
   onOpenNewDirectOrder: () => void;
 }
 
-const STATUS_LABELS: Record<OrderStatus, string> = {
-  attente_reception: 'En attente domaine',
-  recu_lbg: 'Reçu par LBG',
-  remis_client: 'Remis au client',
-  annule: 'Annulé',
+const ORDER_STATUS_META: Record<OrderStatus, { label: string; color: string }> = {
+  attente_reception: { label: 'Attente domaine', color: 'text-[#B45309]' },
+  recu_lbg: { label: 'Prêt LBG', color: 'text-[#721C24]' },
+  remis_client: { label: 'Remis client', color: 'text-[#15803D]' },
+  annule: { label: 'Annulé', color: 'text-[#6B6A65] line-through' },
 };
 
-const SOURCE_LABELS: Record<OrderLine['source'], string> = {
-  helloasso: 'HelloAsso',
-  direct: 'Vente directe',
-  perso: 'Cave perso',
-  facture_ia: 'Facture IA',
+const PAYMENT_META: Record<PaymentStatus, { label: string; color: string }> = {
+  en_attente: { label: 'À encaisser', color: 'text-[#B45309]' },
+  partiel: { label: 'Partiel', color: 'text-[#B45309]' },
+  paye: { label: 'Payé', color: 'text-[#15803D]' },
+  rembourse: { label: 'Remboursé', color: 'text-[#6B6A65]' },
+};
+
+const DELIVERY_LABEL: Record<DeliveryMode, string> = {
+  remise_main: 'Main propre',
+  expedition: 'Expédition',
+  garde_cave: 'Garde cave',
 };
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
   catalog,
   settings,
-  initialFocus,
-  onUpdateOrderStatus,
   onUpdateOrder,
-  onBulkUpdateCampaignStatus,
   onDeleteOrder,
-  onOpenImport,
+  onMarkCampaignDelivered,
+  onOpenImportHelloAsso,
   onOpenNewDirectOrder,
 }) => {
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<OrderStatus | 'all'>('all');
-  const [venteFilter, setVenteFilter] = useState<string>('all');
-  const [editingOrder, setEditingOrder] = useState<OrderLine | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | OrderStatus | 'impayes'
+  >('all');
+  const [campaignFilter, setCampaignFilter] = useState<string>('all');
 
-  useEffect(() => {
-    if (!initialFocus) return;
-    if (initialFocus.search !== undefined) setSearch(initialFocus.search);
-    if (initialFocus.vente !== undefined) setVenteFilter(initialFocus.vente);
-  }, [initialFocus]);
+  const [editingOrder, setEditingOrder] = useState<OrderLine | null>(null);
+  const [deliverySlipRef, setDeliverySlipRef] = useState<string | null>(null);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
     [catalog]
   );
 
-  const uniqueVentes = useMemo(() => {
-    return Array.from(new Set(orders.map((o) => o.vente))).sort();
+  const campaigns = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of orders) if (o.vente) set.add(o.vente);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'fr'));
   }, [orders]);
 
-  const filteredOrders = useMemo(() => {
+  const counts = useMemo(() => {
+    let attente = 0;
+    let recu = 0;
+    let remis = 0;
+    let annule = 0;
+    let impayes = 0;
+    for (const o of orders) {
+      if (o.statut === 'attente_reception') attente++;
+      else if (o.statut === 'recu_lbg') recu++;
+      else if (o.statut === 'remis_client') remis++;
+      else if (o.statut === 'annule') annule++;
+      if (getOrderLineUnpaidTTC(o) > 0.01) impayes++;
+    }
+    return { attente, recu, remis, annule, impayes };
+  }, [orders]);
+
+  const filtered = useMemo(() => {
     const q = normalizeSearchText(search);
     return orders
       .filter((o) => {
-        if (statusFilter !== 'all' && o.statut !== statusFilter) return false;
-        if (venteFilter !== 'all' && o.vente !== venteFilter) return false;
-        if (q) {
-          const cat = catalogMap.get(o.catalogId);
-          const hay = normalizeSearchText(
-            `${o.refCommande} ${o.nomClient} ${o.prenomClient} ${o.produitLabel} ${cat?.domaine ?? ''} ${o.vente}`
-          );
-          if (!hay.includes(q)) return false;
+        if (campaignFilter !== 'all' && o.vente !== campaignFilter) return false;
+        if (statusFilter === 'impayes') {
+          if (getOrderLineUnpaidTTC(o) <= 0.01) return false;
+        } else if (statusFilter !== 'all' && o.statut !== statusFilter) {
+          return false;
         }
-        return true;
+        if (!q) return true;
+        const cat = catalogMap.get(o.catalogId);
+        const hay = normalizeSearchText(
+          `${o.refCommande} ${o.invoiceNumber ?? ''} ${o.nomClient} ${o.prenomClient} ${o.emailClient} ${o.produitLabel} ${cat?.domaine ?? ''} ${o.trackingNumber ?? ''} ${o.vente}`
+        );
+        return hay.includes(q);
       })
-      .sort((a, b) => b.date.localeCompare(a.date));
-  }, [orders, statusFilter, venteFilter, search, catalogMap]);
+      .sort((a, b) => b.date.localeCompare(a.date) || b.refCommande.localeCompare(a.refCommande));
+  }, [orders, search, statusFilter, campaignFilter, catalogMap]);
 
-  const filteredTotals = useMemo(() => {
-    const active = filteredOrders.filter((o) => o.statut !== 'annule');
-    let bottles = 0;
-    let caTTC = 0;
-    let margeTotal = 0;
-    for (const o of active) {
-      const cat = catalogMap.get(o.catalogId);
-      const econ = computeOrderLineEconomics(o, cat, settings);
-      if (econ.isPerso) continue;
-      bottles += o.qte;
-      caTTC += econ.caTTC;
-      margeTotal += econ.margeEuroTotal;
-    }
-    return { bottles, caTTC, margeTotal };
-  }, [filteredOrders, catalogMap, settings]);
-
-  const handleExportCSV = () => {
+  const exportCsv = () => {
     const headers = [
       'Date',
-      'Ref commande',
-      'Vente',
+      'RefCommande',
+      'Facture',
+      'Campagne',
       'Client',
-      'Produit',
-      'Prix unitaire TTC',
+      'Email',
+      'Domaine',
+      'Cuvee',
       'Qte',
-      'Marge totale EUR',
-      'Statut',
-      'Source',
+      'QteRemise',
+      'PU_TTC',
+      'Port_TTC',
+      'Total_TTC',
+      'StatutLogistique',
+      'StatutPaiement',
+      'ModePaiement',
+      'ModeLivraison',
+      'Transporteur',
+      'Tracking',
     ];
-    const rows = filteredOrders.map((o) => {
+    const rows = filtered.map((o) => {
       const cat = catalogMap.get(o.catalogId);
-      const econ = computeOrderLineEconomics(o, cat, settings);
+      const paySt = getEffectiveOrderPaymentStatus(o);
       return [
-        formatDateFR(o.date),
+        o.date,
         o.refCommande,
+        o.invoiceNumber ?? '',
         o.vente,
-        `${o.prenomClient} ${o.nomClient}`.trim(),
+        maskClientName(o.prenomClient, o.nomClient, settings.anonymizeClients),
+        maskEmail(o.emailClient, settings.anonymizeClients),
+        cat?.domaine ?? '',
         o.produitLabel,
-        o.prixUnitaireTTC.toFixed(2).replace('.', ','),
-        String(o.qte),
-        econ.margeEuroTotal.toFixed(2).replace('.', ','),
-        STATUS_LABELS[o.statut],
-        SOURCE_LABELS[o.source],
+        o.qte,
+        o.qteRemise ?? (o.statut === 'remis_client' ? o.qte : 0),
+        o.prixUnitaireTTC.toFixed(2),
+        (o.shippingFeeClientTTC ?? 0).toFixed(2),
+        (o.prixUnitaireTTC * o.qte + (o.shippingFeeClientTTC ?? 0)).toFixed(2),
+        o.statut,
+        paySt,
+        o.paymentMethod ?? '',
+        o.deliveryMode ?? 'remise_main',
+        o.carrier ?? '',
+        o.trackingNumber ?? '',
       ]
-        .map((v) => `"${v.replace(/"/g, '""')}"`)
+        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
         .join(';');
     });
     const csv = '\uFEFF' + [headers.join(';'), ...rows].join('\n');
@@ -157,326 +183,291 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `commandes_lbg_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `lbg_commandes_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const canBulkReceive =
-    venteFilter !== 'all' &&
-    filteredOrders.some((o) => o.statut === 'attente_reception');
+  const quickMarkPaid = async (o: OrderLine) => {
+    await onUpdateOrder({
+      ...o,
+      paymentStatus: 'paye',
+      paidAt: new Date().toISOString().slice(0, 10),
+      amountPaidTTC: undefined,
+    });
+  };
 
-  const canBulkDeliver =
-    venteFilter !== 'all' &&
-    filteredOrders.some((o) => o.statut === 'recu_lbg');
+  const deliverySlipOrders = useMemo(() => {
+    if (!deliverySlipRef) return [];
+    return orders.filter(
+      (o) => o.refCommande === deliverySlipRef && o.statut !== 'annule'
+    );
+  }, [deliverySlipRef, orders]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 no-print">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413] tracking-tight">
-            Commandes &amp; suivi logistique
+          <h1 className="font-serif text-3xl font-semibold text-[#18181B]">
+            Commandes &amp; Expéditions
           </h1>
-          <p className="text-sm text-[#6B6B66] mt-1">
-            Centralisez vos imports HelloAsso et ventes directes, puis faites
-            avancer les statuts en un clic.
-          </p>
-          <p className="text-xs text-[#9E9B93] mt-0.5">
-            Règle Excel : les ventes historiques sans colonne K (Vernay, Geoffroy juil. 2026) sont classées en « Remis au client » ; tout import HelloAsso brut démarre en « En attente domaine ».
+          <p className="text-sm text-[#6B6A65] mt-1">
+            Suivi des ventes, paiements clients, livraisons partielles, tracking colis et bons de livraison.
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap gap-2">
           <button
-            onClick={handleExportCSV}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-[#141413] bg-white hover:bg-[#F6F6F4] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap"
+            onClick={exportCsv}
+            className="px-3 py-2 rounded-lg border border-[#E5E4DF] bg-white hover:bg-[#FAF9F6] text-xs font-medium flex items-center gap-1.5 cursor-pointer"
           >
-            <Download className="w-4 h-4 text-[#6B6B66]" />
-            <span>Exporter CSV</span>
+            <Download className="w-3.5 h-3.5" />
+            Export CSV
+          </button>
+          <button
+            onClick={onOpenImportHelloAsso}
+            className="px-3 py-2 rounded-lg border border-[#E5E4DF] bg-white hover:bg-[#FAF9F6] text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            Import HelloAsso
           </button>
           <button
             onClick={onOpenNewDirectOrder}
-            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-[#141413] bg-white hover:bg-[#F6F6F4] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap"
+            className="px-3.5 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-4 h-4 text-[#721C24]" />
-            <span>Vente directe</span>
-          </button>
-          <button
-            onClick={onOpenImport}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors whitespace-nowrap"
-          >
-            <ClipboardPaste className="w-4 h-4" />
-            <span>Importer HelloAsso</span>
+            <Plus className="w-3.5 h-3.5" />
+            Nouvelle commande
           </button>
         </div>
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 space-y-3">
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg w-fit">
-            {(
-              [
-                ['all', 'Toutes'],
-                ['attente_reception', 'En attente domaine'],
-                ['recu_lbg', 'Reçu par LBG'],
-                ['remis_client', 'Remis client'],
-                ['annule', 'Annulées'],
-              ] as const
-            ).map(([key, label]) => (
-              <button
-                key={key}
-                onClick={() => setStatusFilter(key)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                  statusFilter === key
-                    ? 'bg-white text-[#141413] shadow-sm'
-                    : 'text-[#6B6B66] hover:text-[#141413]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              value={venteFilter}
-              onChange={(e) => setVenteFilter(e.target.value)}
-              className="px-3 py-1.5 text-sm bg-[#FAF9F7] border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24] max-w-full"
+      {/* Filters */}
+      <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 space-y-3 no-print">
+        <div className="flex flex-wrap items-center gap-2 border-b border-[#E5E4DF] pb-3 text-xs">
+          {(
+            [
+              ['all', `Toutes (${orders.length})`],
+              ['attente_reception', `Attente domaine (${counts.attente})`],
+              ['recu_lbg', `Prêtes LBG (${counts.recu})`],
+              ['remis_client', `Remises (${counts.remis})`],
+              ['impayes', `Impayés (${counts.impayes})`],
+              ['annule', `Annulées (${counts.annule})`],
+            ] as const
+          ).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setStatusFilter(id)}
+              className={`px-3 py-1.5 rounded-lg font-medium transition-colors cursor-pointer ${
+                statusFilter === id
+                  ? id === 'impayes'
+                    ? 'bg-[#B45309] text-white'
+                    : 'bg-[#721C24] text-white'
+                  : 'text-[#6B6A65] hover:bg-[#F6F6F4]'
+              }`}
             >
-              <option value="all">Toutes les ventes</option>
-              {uniqueVentes.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-
-            <div className="relative w-full sm:w-56">
-              <Search className="w-4 h-4 text-[#6B6B66] absolute left-3 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Client, réf, cuvée..."
-                className="pl-9 pr-3 py-1.5 text-sm bg-[#FAF9F7] border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24] w-full"
-              />
-            </div>
-          </div>
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* Summary & Campaign Bulk Action */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#ECEAE4] text-xs text-[#6B6B66]">
-          <div className="flex items-center gap-3 tabular-nums">
-            <span>{filteredOrders.length} lignes affichées</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-medium text-[#141413]">
-              {filteredTotals.bottles} bouteilles actives
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="font-medium text-[#141413]">
-              {formatEUR(filteredTotals.caTTC)} TTC
-            </span>
-            <span aria-hidden="true">·</span>
-            <span className="font-medium text-[#15803D]">
-              Marge nette : {formatEUR(filteredTotals.margeTotal, true)}
-            </span>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-[#6B6A65] absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Client, cuvée, réf. commande, facture, n° de suivi…"
+              className="w-full pl-9 pr-3 py-2 text-sm border border-[#E5E4DF] rounded-lg focus:outline-none focus:border-[#721C24]"
+            />
           </div>
-
-          {(canBulkReceive || canBulkDeliver) && (
-            <div className="flex items-center gap-2">
-              {canBulkReceive && (
-                <button
-                  onClick={() =>
-                    onBulkUpdateCampaignStatus(
-                      venteFilter,
-                      'attente_reception',
-                      'recu_lbg'
-                    )
-                  }
-                  className="px-3 py-1 text-xs font-medium text-[#15803D] bg-[#15803D]/10 hover:bg-[#15803D]/18 rounded-md transition-colors"
-                >
-                  Tout passer en « Reçu par LBG » ({venteFilter})
-                </button>
-              )}
-              {canBulkDeliver && (
-                <button
-                  onClick={() =>
-                    onBulkUpdateCampaignStatus(
-                      venteFilter,
-                      'recu_lbg',
-                      'remis_client'
-                    )
-                  }
-                  className="px-3 py-1 text-xs font-medium text-[#141413] bg-[#F6F6F4] hover:bg-[#E5E4DF] border border-[#D8D6D0] rounded-md transition-colors"
-                >
-                  Tout passer en « Remis au client » ({venteFilter})
-                </button>
-              )}
-            </div>
+          <select
+            value={campaignFilter}
+            onChange={(e) => setCampaignFilter(e.target.value)}
+            className="px-3 py-2 text-sm border border-[#E5E4DF] rounded-lg bg-white"
+          >
+            <option value="all">Toutes les campagnes ({campaigns.length})</option>
+            {campaigns.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          {campaignFilter !== 'all' && (
+            <button
+              onClick={() => onMarkCampaignDelivered(campaignFilter)}
+              className="px-3 py-2 rounded-lg border border-[#15803D] text-[#15803D] hover:bg-[#F0FDF4] text-xs font-medium flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              Tout marquer remis
+            </button>
           )}
         </div>
       </div>
 
-      {/* Orders Table */}
-      <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+      {/* Table */}
+      <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden no-print">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-sm">
-            <thead>
-              <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
-                <th className="py-3 px-4 font-medium">Date · Réf</th>
-                <th className="py-3 px-4 font-medium">Vente</th>
-                <th className="py-3 px-4 font-medium">Client</th>
-                <th className="py-3 px-4 font-medium">Cuvée</th>
-                <th className="py-3 px-3 font-medium text-right">PU TTC</th>
-                <th className="py-3 px-3 font-medium text-right">Qté</th>
-                <th className="py-3 px-4 font-medium text-right">
-                  Marge nette
-                </th>
-                <th className="py-3 px-4 font-medium">Statut logistique</th>
-                <th className="py-3 px-3 font-medium text-right"></th>
+          <table className="w-full text-sm">
+            <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+              <tr>
+                <th className="text-left py-2.5 px-4 font-medium">Date · Réf</th>
+                <th className="text-left py-2.5 px-3 font-medium">Client</th>
+                <th className="text-left py-2.5 px-3 font-medium">Cuvée · Campagne</th>
+                <th className="text-right py-2.5 px-2 font-medium">Qté</th>
+                <th className="text-right py-2.5 px-3 font-medium">Total TTC</th>
+                <th className="text-left py-2.5 px-3 font-medium">Paiement</th>
+                <th className="text-left py-2.5 px-3 font-medium">Livraison &amp; Statut</th>
+                <th className="text-right py-2.5 px-4 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#ECEAE4]">
-              {filteredOrders.map((o) => {
+            <tbody className="divide-y divide-[#E5E4DF]">
+              {filtered.map((o) => {
                 const cat = catalogMap.get(o.catalogId);
-                const econ = computeOrderLineEconomics(o, cat, settings);
-                const isCancelled = o.statut === 'annule';
+                const payStatus = getEffectiveOrderPaymentStatus(o);
+                const payMeta = PAYMENT_META[payStatus];
+                const unpaid = getOrderLineUnpaidTTC(o);
+                const totalTTC =
+                  o.prixUnitaireTTC * o.qte + (o.shippingFeeClientTTC ?? 0);
+                const partialRemis =
+                  o.statut !== 'remis_client' && (o.qteRemise ?? 0) > 0;
+
                 return (
-                  <tr
-                    key={o.id}
-                    className={`hover:bg-[#FAF9F7] transition-colors ${
-                      isCancelled ? 'opacity-55 bg-[#FEF2F2]/40' : ''
-                    }`}
-                  >
+                  <tr key={o.id} className="hover:bg-[#FAF9F6]">
                     <td className="py-2.5 px-4 whitespace-nowrap">
-                      <div className="font-mono-num text-xs text-[#141413]">
-                        {formatDateFR(o.date)}
-                      </div>
-                      <div className="text-[11px] font-mono-num text-[#6B6B66]">
+                      <div className="font-mono text-xs text-[#18181B] flex items-center gap-1">
                         {o.refCommande}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-xs text-[#6B6B66] whitespace-nowrap">
-                      <div>{o.vente}</div>
-                      {o.source !== 'helloasso' && (
-                        <div className="text-[#721C24] font-medium">
-                          {SOURCE_LABELS[o.source]}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-4 whitespace-nowrap font-medium text-[#141413]">
-                      {maskClientName(
-                        o.prenomClient,
-                        o.nomClient,
-                        settings.anonymizeClients
-                      )}
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <div className="font-medium text-[#141413]">
-                        {o.produitLabel}
-                      </div>
-                      {cat && (
-                        <div className="text-xs text-[#6B6B66]">
-                          {cat.domaine}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono-num">
-                      {formatEUR(o.prixUnitaireTTC)}
-                    </td>
-                    <td className="py-2.5 px-3 text-right font-mono-num font-medium">
-                      {o.qte}
-                    </td>
-                    <td className="py-2.5 px-4 text-right font-mono-num">
-                      {isCancelled ? (
-                        <span className="text-[#6B6B66]">—</span>
-                      ) : econ.isPerso ? (
-                        <span className="text-xs text-[#6B6B66]">
-                          Perso (0 €)
-                        </span>
-                      ) : cat ? (
-                        <div>
-                          <span
-                            className={`font-medium ${
-                              econ.margeEuroTotal >= 0
-                                ? 'text-[#15803D]'
-                                : 'text-[#B91C1C]'
-                            }`}
-                          >
-                            {formatEUR(econ.margeEuroTotal, true)}
+                        {o.locked && (
+                          <span title={`Verrouillé par facture ${o.invoiceNumber ?? ''}`}>
+                            <Lock className="w-3 h-3 text-[#721C24]" />
                           </span>
-                          <div className="text-[11px] text-[#6B6B66]">
-                            {formatPct(econ.margePct)}
-                          </div>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-[#6B6A65]">
+                        {formatDateFR(o.date)}
+                        {o.invoiceNumber ? ` · ${o.invoiceNumber}` : ''}
+                      </div>
+                    </td>
+
+                    <td className="py-2.5 px-3">
+                      <div className="font-medium text-[#18181B]">
+                        {maskClientName(
+                          o.prenomClient,
+                          o.nomClient,
+                          settings.anonymizeClients
+                        )}
+                      </div>
+                      <div className="text-[11px] text-[#6B6A65] truncate max-w-[180px]">
+                        {o.emailClient
+                          ? maskEmail(o.emailClient, settings.anonymizeClients)
+                          : o.source}
+                      </div>
+                    </td>
+
+                    <td className="py-2.5 px-3">
+                      <div className="text-[#18181B]">{o.produitLabel}</div>
+                      <div className="text-[11px] text-[#6B6A65]">
+                        {cat?.domaine ? `${cat.domaine} · ` : ''}
+                        {o.vente}
+                      </div>
+                    </td>
+
+                    <td className="py-2.5 px-2 text-right font-mono tabular-nums">
+                      <div>{o.qte}</div>
+                      {partialRemis && (
+                        <div className="text-[10px] text-[#B45309]">
+                          {o.qteRemise}/{o.qte} rem.
                         </div>
-                      ) : (
-                        '—'
                       )}
                     </td>
-                    <td className="py-2.5 px-4 whitespace-nowrap">
+
+                    <td className="py-2.5 px-3 text-right font-mono tabular-nums whitespace-nowrap">
+                      <div className="font-medium text-[#18181B]">
+                        {formatEUR(totalTTC)}
+                      </div>
+                      {(o.shippingFeeClientTTC ?? 0) > 0 && (
+                        <div className="text-[10px] text-[#6B6A65]">
+                          dont port {formatEUR(o.shippingFeeClientTTC ?? 0)}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="py-2.5 px-3 whitespace-nowrap">
+                      <div className={`text-xs font-medium ${payMeta.color}`}>
+                        {payMeta.label}
+                      </div>
+                      {unpaid > 0.01 ? (
+                        <button
+                          onClick={() => quickMarkPaid(o)}
+                          className="text-[11px] text-[#721C24] hover:underline flex items-center gap-1 mt-0.5 cursor-pointer"
+                        >
+                          <Wallet className="w-3 h-3" />
+                          Marquer payé
+                        </button>
+                      ) : (
+                        <div className="text-[11px] text-[#6B6A65]">
+                          {o.paymentMethod ?? o.source}
+                        </div>
+                      )}
+                    </td>
+
+                    <td className="py-2.5 px-3 whitespace-nowrap">
                       <select
                         value={o.statut}
-                        onChange={(e) =>
-                          onUpdateOrderStatus(
-                            o.id,
-                            e.target.value as OrderStatus
-                          )
-                        }
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md border bg-white cursor-pointer focus:outline-none ${
-                          o.statut === 'attente_reception'
-                            ? 'border-[#F59E0B]/50 text-[#B45309]'
-                            : o.statut === 'recu_lbg'
-                              ? 'border-[#15803D]/50 text-[#15803D]'
-                              : o.statut === 'annule'
-                                ? 'border-[#DC2626]/40 text-[#B91C1C]'
-                                : 'border-[#D8D6D0] text-[#6B6B66]'
-                        }`}
+                        onChange={(e) => {
+                          const nextStatut = e.target.value as OrderStatus;
+                          onUpdateOrder({
+                            ...o,
+                            statut: nextStatut,
+                            qteRemise:
+                              nextStatut === 'remis_client' ? o.qte : o.qteRemise,
+                          });
+                        }}
+                        className={`text-xs border border-[#E5E4DF] rounded px-2 py-1 bg-white font-medium ${ORDER_STATUS_META[o.statut].color}`}
                       >
-                        <option value="attente_reception">
-                          En attente domaine
-                        </option>
-                        <option value="recu_lbg">Reçu par LBG</option>
-                        <option value="remis_client">Remis au client</option>
+                        <option value="attente_reception">Attente domaine</option>
+                        <option value="recu_lbg">Prêt LBG</option>
+                        <option value="remis_client">Remis client</option>
                         <option value="annule">Annulé</option>
                       </select>
+                      <div className="text-[11px] text-[#6B6A65] mt-0.5 flex items-center gap-1">
+                        <Truck className="w-3 h-3" />
+                        {DELIVERY_LABEL[o.deliveryMode ?? 'remise_main']}
+                        {o.trackingNumber ? ` · ${o.trackingNumber}` : ''}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1">
-                        {onUpdateOrder && (
-                          <button
-                            type="button"
-                            onClick={() => setEditingOrder({ ...o })}
-                            className="p-1.5 text-[#9E9B93] hover:text-[#141413] rounded-md transition-colors"
-                            title="Modifier la commande"
-                            aria-label="Modifier la commande"
-                          >
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => setDeliverySlipRef(o.refCommande)}
+                        title="Bon de livraison (BL) sans prix"
+                        className="p-1.5 text-[#6B6A65] hover:text-[#18181B] cursor-pointer"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setEditingOrder({ ...o })}
+                        title="Éditer paiement, expédition, remise partielle"
+                        className="p-1.5 text-[#6B6A65] hover:text-[#721C24] cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                      {!o.locked && (
                         <button
-                          type="button"
-                          onClick={() => setConfirmDeleteId(o.id)}
-                          className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] rounded-md transition-colors"
+                          onClick={() => onDeleteOrder(o.id)}
                           title="Supprimer la ligne"
-                          aria-label="Supprimer la ligne"
+                          className="p-1.5 text-[#6B6A65] hover:text-[#B91C1C] cursor-pointer"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
-                      </div>
+                      )}
                     </td>
                   </tr>
                 );
               })}
-
-              {filteredOrders.length === 0 && (
+              {filtered.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={9}
-                    className="py-12 text-center text-sm text-[#6B6B66]"
-                  >
-                    Aucune commande trouvée pour ces critères.
+                  <td colSpan={8} className="py-10 text-center text-xs text-[#6B6A65]">
+                    Aucune commande ne correspond à ces filtres.
                   </td>
                 </tr>
               )}
@@ -485,162 +476,398 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
         </div>
       </div>
 
-      {/* Edit Order Modal */}
-      {editingOrder && onUpdateOrder && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-md bg-white border border-[#E5E4DF] rounded-xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E4DF]">
-              <h3 className="text-base font-semibold text-[#141413]">
-                Modifier la ligne commande ({editingOrder.refCommande})
-              </h3>
+      {/* Edit Order Modal (Payment, Shipping, Partial Delivery) */}
+      {editingOrder && (
+        <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4 no-print">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              await onUpdateOrder(editingOrder);
+              setEditingOrder(null);
+            }}
+            className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4 text-sm"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E4DF]">
+              <div>
+                <h3 className="font-serif text-xl font-semibold">
+                  Commande {editingOrder.refCommande}
+                </h3>
+                <p className="text-xs text-[#6B6A65]">
+                  {editingOrder.produitLabel} · {editingOrder.prenomClient}{' '}
+                  {editingOrder.nomClient}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setEditingOrder(null)}
-                className="p-1 text-[#6B6B66] hover:text-[#141413]"
+                className="p-1 text-[#6B6A65] cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                onUpdateOrder(editingOrder);
-                setEditingOrder(null);
-              }}
-              className="p-5 space-y-3 text-xs"
-            >
-              <div>
-                <label className="block font-medium text-[#6B6B66] mb-1">
-                  Cuvée catalogue associée
-                </label>
-                <select
-                  value={editingOrder.catalogId}
-                  onChange={(e) => {
-                    const cat = catalogMap.get(e.target.value);
-                    setEditingOrder({
-                      ...editingOrder,
-                      catalogId: e.target.value,
-                      produitLabel: cat?.cuvee ?? editingOrder.produitLabel,
-                    });
-                  }}
-                  className="w-full px-3 py-2 border border-[#D8D6D0] rounded-lg"
-                >
-                  {catalog.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.domaine} — {c.cuvee}
-                    </option>
-                  ))}
-                </select>
+
+            {editingOrder.locked && (
+              <div className="p-3 rounded-lg bg-[#FDF8F8] border border-[#E5E4DF] text-xs text-[#721C24] flex items-center gap-2">
+                <Lock className="w-4 h-4 shrink-0" />
+                Ligne verrouillée par la facture{' '}
+                <strong className="font-mono">{editingOrder.invoiceNumber}</strong>.
+                Les montants et quantités sont figés (émettez un avoir en Comptabilité pour rectifier). Le suivi paiement et livraison reste modifiable.
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-medium text-[#6B6B66] mb-1">
-                    Quantité
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    value={editingOrder.qte}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      setEditingOrder({
-                        ...editingOrder,
-                        qte: Number.isFinite(raw) ? Math.max(1, raw) : 1,
-                      });
-                    }}
-                    className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-medium text-[#6B6B66] mb-1">
-                    PU TTC (€)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min={0}
-                    value={editingOrder.prixUnitaireTTC}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      setEditingOrder({
-                        ...editingOrder,
-                        prixUnitaireTTC: Number.isFinite(raw) ? Math.max(0, raw) : 0,
-                      });
-                    }}
-                    className="w-full px-3 py-2 font-mono-num border border-[#D8D6D0] rounded-lg"
-                  />
-                </div>
-              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-medium text-[#6B6B66] mb-1">
-                  Vente / Campagne
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Quantité commandée
                 </label>
                 <input
-                  type="text"
-                  value={editingOrder.vente}
+                  type="number"
+                  min="1"
+                  disabled={editingOrder.locked}
+                  value={editingOrder.qte}
                   onChange={(e) =>
-                    setEditingOrder({ ...editingOrder, vente: e.target.value })
+                    setEditingOrder({
+                      ...editingOrder,
+                      qte: Math.max(1, Math.round(Number(e.target.value) || 1)),
+                    })
                   }
-                  className="w-full px-3 py-2 border border-[#D8D6D0] rounded-lg"
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono disabled:bg-[#F6F6F4]"
                 />
               </div>
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E4DF]">
-                <button
-                  type="button"
-                  onClick={() => setEditingOrder(null)}
-                  className="px-3.5 py-1.5 text-[#6B6B66]"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-1.5 font-medium text-white bg-[#721C24] rounded-lg"
-                >
-                  Enregistrer
-                </button>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Prix unitaire TTC (€)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  disabled={editingOrder.locked}
+                  value={editingOrder.prixUnitaireTTC}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      prixUnitaireTTC: Math.max(0, Number(e.target.value) || 0),
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono disabled:bg-[#F6F6F4]"
+                />
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </div>
 
-      {/* Delete Confirmation Modal */}
-      {confirmDeleteId && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-sm bg-white border border-[#E5E4DF] rounded-xl shadow-2xl p-5 space-y-4">
-            <h3 className="text-base font-semibold text-[#141413]">
-              Supprimer cette ligne de commande ?
-            </h3>
-            <p className="text-xs text-[#6B6B66]">
-              Si la commande a été annulée par le client, préférez le statut «
-              Annulé » pour garder la trace comptable.
-            </p>
-            <div className="flex justify-end gap-2">
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-[#E5E4DF]">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Statut paiement
+                </label>
+                <select
+                  value={getEffectiveOrderPaymentStatus(editingOrder)}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      paymentStatus: e.target.value as PaymentStatus,
+                      paidAt:
+                        e.target.value === 'paye'
+                          ? editingOrder.paidAt ?? new Date().toISOString().slice(0, 10)
+                          : editingOrder.paidAt,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+                >
+                  <option value="en_attente">À encaisser</option>
+                  <option value="partiel">Acompte / Partiel</option>
+                  <option value="paye">Payé</option>
+                  <option value="rembourse">Remboursé</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Mode de règlement
+                </label>
+                <select
+                  value={editingOrder.paymentMethod ?? 'virement'}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      paymentMethod: e.target.value as PaymentMethod,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+                >
+                  <option value="helloasso">HelloAsso</option>
+                  <option value="virement">Virement</option>
+                  <option value="cb">Carte bancaire</option>
+                  <option value="especes">Espèces</option>
+                  <option value="cheque">Chèque</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+              {editingOrder.paymentStatus === 'partiel' && (
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                    Montant déjà encaissé TTC (€)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={editingOrder.amountPaidTTC ?? 0}
+                    onChange={(e) =>
+                      setEditingOrder({
+                        ...editingOrder,
+                        amountPaidTTC: Math.max(0, Number(e.target.value) || 0),
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-[#E5E4DF]">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Mode de livraison
+                </label>
+                <select
+                  value={editingOrder.deliveryMode ?? 'remise_main'}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      deliveryMode: e.target.value as DeliveryMode,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+                >
+                  <option value="remise_main">Remise en main propre</option>
+                  <option value="expedition">Expédition transporteur</option>
+                  <option value="garde_cave">Garde en cave LBG</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Qté déjà remise (partielle)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max={editingOrder.qte}
+                  value={editingOrder.qteRemise ?? 0}
+                  onChange={(e) => {
+                    const rem = Math.min(
+                      editingOrder.qte,
+                      Math.max(0, Math.round(Number(e.target.value) || 0))
+                    );
+                    setEditingOrder({
+                      ...editingOrder,
+                      qteRemise: rem,
+                      statut:
+                        rem >= editingOrder.qte ? 'remis_client' : editingOrder.statut,
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Transporteur
+                </label>
+                <input
+                  value={editingOrder.carrier ?? ''}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      carrier: e.target.value || undefined,
+                    })
+                  }
+                  placeholder="Chronopost, Colissimo, Geodis…"
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Numéro de suivi (tracking)
+                </label>
+                <input
+                  value={editingOrder.trackingNumber ?? ''}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      trackingNumber: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono text-xs"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Adresse de livraison
+                </label>
+                <input
+                  value={editingOrder.deliveryAddress ?? ''}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      deliveryAddress: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Notes
+                </label>
+                <input
+                  value={editingOrder.notes ?? ''}
+                  onChange={(e) =>
+                    setEditingOrder({
+                      ...editingOrder,
+                      notes: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E4DF]">
               <button
                 type="button"
-                onClick={() => setConfirmDeleteId(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-[#6B6B66]"
+                onClick={() => setEditingOrder(null)}
+                className="px-4 py-2 rounded-lg border border-[#E5E4DF] cursor-pointer"
               >
                 Annuler
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  onDeleteOrder(confirmDeleteId);
-                  setConfirmDeleteId(null);
-                }}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-[#721C24] text-white font-medium cursor-pointer"
               >
-                Supprimer
+                Enregistrer
               </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Printable Delivery Slip (Bon de livraison — strictly no prices or margins) */}
+      {deliverySlipRef && deliverySlipOrders.length > 0 && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl w-full max-w-2xl overflow-hidden shadow-xl">
+            <div className="p-4 border-b border-[#E5E4DF] flex items-center justify-between bg-[#FAF9F6] no-print">
+              <span className="font-mono text-sm font-semibold">
+                Bon de livraison · Commande {deliverySlipRef}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => window.print()}
+                  className="px-3 py-1.5 rounded-lg bg-[#721C24] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  Imprimer le BL
+                </button>
+                <button
+                  onClick={() => setDeliverySlipRef(null)}
+                  className="p-1.5 text-[#6B6A65] cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-8 space-y-6 text-[#18181B]">
+              <div className="flex justify-between items-start border-b border-[#E5E4DF] pb-4">
+                <div>
+                  <h2 className="font-serif text-2xl font-semibold text-[#721C24]">
+                    {settings.companyName || "Le Bon Grain d'Ivresse"}
+                  </h2>
+                  <p className="text-xs text-[#6B6A65] mt-1">
+                    {settings.companyAddress}
+                    {settings.companyPhone ? ` · ${settings.companyPhone}` : ''}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs uppercase tracking-wider text-[#6B6A65]">
+                    Bon de livraison
+                  </div>
+                  <div className="font-mono text-lg font-bold">
+                    BL-{deliverySlipRef}
+                  </div>
+                  <div className="text-xs text-[#6B6A65]">
+                    Date : {formatDateFR(deliverySlipOrders[0].date)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-[#FAF9F6] border border-[#E5E4DF] rounded-lg p-4 text-sm">
+                <div className="text-xs uppercase tracking-wider text-[#6B6A65]">
+                  Destinataire
+                </div>
+                <div className="font-semibold mt-0.5">
+                  {deliverySlipOrders[0].prenomClient}{' '}
+                  {deliverySlipOrders[0].nomClient}
+                </div>
+                {deliverySlipOrders[0].deliveryAddress && (
+                  <div className="text-xs text-[#6B6A65] mt-0.5">
+                    {deliverySlipOrders[0].deliveryAddress}
+                  </div>
+                )}
+                {deliverySlipOrders[0].carrier && (
+                  <div className="text-xs text-[#6B6A65] mt-1">
+                    Transporteur : {deliverySlipOrders[0].carrier}
+                    {deliverySlipOrders[0].trackingNumber
+                      ? ` · Suivi : ${deliverySlipOrders[0].trackingNumber}`
+                      : ''}
+                  </div>
+                )}
+              </div>
+
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="border-b-2 border-[#18181B] text-xs uppercase text-[#6B6A65]">
+                    <th className="text-left py-2">Domaine &amp; Cuvée</th>
+                    <th className="text-right py-2">Qté commandée</th>
+                    <th className="text-right py-2">Contrôle colis</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E4DF]">
+                  {deliverySlipOrders.map((line) => {
+                    const cat = catalogMap.get(line.catalogId);
+                    return (
+                      <tr key={line.id}>
+                        <td className="py-2.5">
+                          <div className="font-medium">{line.produitLabel}</div>
+                          {cat && (
+                            <div className="text-xs text-[#6B6A65]">
+                              {[cat.domaine, cat.millesime, cat.format || '75 cl']
+                                .filter(Boolean)
+                                .join(' · ')}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 text-right font-mono font-semibold">
+                          {line.qte} btl
+                        </td>
+                        <td className="py-2.5 text-right text-xs text-[#6B6A65]">
+                          [ &nbsp; ] Vérifié
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+
+              <div className="flex justify-between items-end pt-6 border-t border-[#E5E4DF] text-xs text-[#6B6A65]">
+                <div>
+                  Total colis :{' '}
+                  <strong className="font-mono text-[#18181B]">
+                    {deliverySlipOrders.reduce((s, o) => s + o.qte, 0)} bouteilles
+                  </strong>
+                </div>
+                <div className="w-56 border-t border-[#18181B] pt-1 text-center">
+                  Date &amp; signature réception client
+                </div>
+              </div>
             </div>
           </div>
         </div>

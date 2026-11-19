@@ -1,584 +1,484 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  Check,
-  PackageCheck,
-  PackagePlus,
   Search,
+  Plus,
+  PackageCheck,
+  Sparkles,
+  Edit3,
   Trash2,
-  Warehouse,
+  ClipboardList,
+  CheckCircle2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
-import { StockSummaryRow, SupplierLot, WineCatalogItem } from '../types/wine';
+import {
+  StockAdjustment,
+  StockAdjustmentReason,
+  StockSummaryRow,
+  SupplierLot,
+  WineCatalogItem,
+} from '../types/wine';
 import { formatDateFR, formatEUR, normalizeSearchText } from '../utils/wineMath';
-import { DataSourceBanner } from './DataSourceBanner';
-
-export type StockFilter = 'all' | 'avance' | 'dispo' | 'attente' | 'deficit';
 
 interface StockViewProps {
   stockRows: StockSummaryRow[];
   lots: SupplierLot[];
+  adjustments: StockAdjustment[];
   catalog: WineCatalogItem[];
-  isDemoMode: boolean;
-  onEnableDemoMode: () => void;
-  onDisableDemoMode: () => void;
-  onOpenInvoiceAI?: () => void;
-  initialFocus?: {
-    search?: string;
-    filter?: StockFilter;
-    subTab?: 'inventory' | 'lots';
-  } | null;
-  onOpenNewLot: (preselectedCatalogId?: string) => void;
-  onReceiveLot: (
-    lotId: string,
-    alsoUpdateOrders: boolean,
-    qtyReceivedTotal?: number
-  ) => void;
-  onDeleteLot?: (lotId: string) => void;
+  currentUserUid: string;
+  isAdmin: boolean;
+  onReceiveLot: (lotId: string) => Promise<void>;
+  onEditLot: (lot: SupplierLot) => void;
+  onToggleLotPayment: (lot: SupplierLot) => Promise<void>;
+  onDeleteLot: (lotId: string) => Promise<void>;
+  onAddAdjustment: (adj: StockAdjustment) => Promise<void>;
+  onDeleteAdjustment: (adjId: string) => Promise<void>;
+  onOpenNewLotModal: () => void;
+  onOpenInvoiceAI: () => void;
 }
 
-const LOT_ORIGIN_BADGES: Record<
-  NonNullable<SupplierLot['origin']>,
-  { label: string; className: string }
+const REASON_META: Record<
+  StockAdjustmentReason,
+  { label: string; defaultSign: 1 | -1 }
 > = {
-  excel_dispos: {
-    label: 'Tableur Dispos (col. S)',
-    className: 'bg-[#15803D]/10 text-[#15803D] border-[#15803D]/25',
-  },
-  excel_status_inferred: {
-    label: 'Déduit col. K (sans facture)',
-    className: 'bg-[#B45309]/10 text-[#B45309] border-[#B45309]/25',
-  },
-  demo: {
-    label: 'Scénario Démo',
-    className: 'bg-[#721C24]/10 text-[#721C24] border-[#721C24]/25',
-  },
-  manual: {
-    label: 'Saisie / Facture IA',
-    className: 'bg-[#F6F6F4] text-[#4A4A45] border-[#D8D6D0]',
-  },
+  casse: { label: 'Casse bouteille', defaultSign: -1 },
+  bouchonnee: { label: 'Bouteille bouchonnée / défaut', defaultSign: -1 },
+  degustation: { label: 'Dégustation / Échantillon pro', defaultSign: -1 },
+  retour_client: { label: 'Retour client en cave', defaultSign: 1 },
+  inventaire: { label: 'Régularisation inventaire', defaultSign: -1 },
 };
 
 export const StockView: React.FC<StockViewProps> = ({
   stockRows,
   lots,
+  adjustments,
   catalog,
-  isDemoMode,
-  onEnableDemoMode,
-  onDisableDemoMode,
-  onOpenInvoiceAI,
-  initialFocus,
-  onOpenNewLot,
+  currentUserUid,
+  isAdmin,
   onReceiveLot,
+  onEditLot,
+  onToggleLotPayment,
   onDeleteLot,
+  onAddAdjustment,
+  onDeleteAdjustment,
+  onOpenNewLotModal,
+  onOpenInvoiceAI,
 }) => {
-  const [subTab, setSubTab] = useState<'inventory' | 'lots'>('inventory');
+  const [subTab, setSubTab] = useState<'inventory' | 'lots' | 'adjustments'>(
+    'inventory'
+  );
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<StockFilter>('all');
-  const [showZeroRows, setShowZeroRows] = useState(false);
-  const [partialQtyDraft, setPartialQtyDraft] = useState<Record<string, number>>({});
-  const [confirmDeleteLotId, setConfirmDeleteLotId] = useState<string | null>(null);
+  const [filterMode, setFilterMode] = useState<
+    'all' | 'dispo' | 'deficit' | 'cave'
+  >('all');
 
-  useEffect(() => {
-    if (!initialFocus) return;
-    if (initialFocus.search !== undefined) setSearch(initialFocus.search);
-    if (initialFocus.filter !== undefined) setFilter(initialFocus.filter);
-    if (initialFocus.subTab !== undefined) setSubTab(initialFocus.subTab);
-  }, [initialFocus]);
+  // Adjustment modal
+  const [adjModalOpen, setAdjModalOpen] = useState(false);
+  const [adjCatalogId, setAdjCatalogId] = useState(catalog[0]?.id ?? '');
+  const [adjDate, setAdjDate] = useState(new Date().toISOString().slice(0, 10));
+  const [adjReason, setAdjReason] = useState<StockAdjustmentReason>('casse');
+  const [adjQty, setAdjQty] = useState(1);
+  const [adjDirection, setAdjDirection] = useState<'out' | 'in'>('out');
+  const [adjNotes, setAdjNotes] = useState('');
+  const [adjSaving, setAdjSaving] = useState(false);
 
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
     [catalog]
   );
 
-  const totals = useMemo(() => {
-    return stockRows.reduce(
-      (acc, r) => ({
-        physique: acc.physique + r.physiqueCave,
-        transit: acc.transit + r.enCommandeFournisseur,
-        reserve: acc.reserve + r.reserveClients,
-        dispo: acc.dispo + Math.max(0, r.disponibleVente),
-        capitalHT: acc.capitalHT + r.capitalImmobiliseHT,
-      }),
-      { physique: 0, transit: 0, reserve: 0, dispo: 0, capitalHT: 0 }
-    );
-  }, [stockRows]);
-
-  const activeStockCount = useMemo(
-    () =>
-      stockRows.filter(
-        (r) =>
-          r.physiqueCave > 0 ||
-          r.enCommandeFournisseur > 0 ||
-          r.reserveClients > 0 ||
-          r.disponibleVente !== 0 ||
-          r.hasAdvanceStock
-      ).length,
-    [stockRows]
-  );
-
   const filteredStock = useMemo(() => {
     const q = normalizeSearchText(search);
-    const hasActiveMovement = (r: StockSummaryRow) =>
-      r.physiqueCave > 0 ||
-      r.enCommandeFournisseur > 0 ||
-      r.reserveClients > 0 ||
-      r.disponibleVente !== 0 ||
-      r.hasAdvanceStock;
+    return stockRows.filter((r) => {
+      if (filterMode === 'dispo' && r.disponibleVente <= 0) return false;
+      if (filterMode === 'deficit' && r.disponibleVente >= 0) return false;
+      if (filterMode === 'cave' && r.physiqueCave <= 0) return false;
+      if (!q) return true;
+      const hay = normalizeSearchText(
+        `${r.catalog.domaine} ${r.catalog.cuvee} ${r.catalog.region} ${r.catalog.vente} ${r.catalog.millesime ?? ''}`
+      );
+      return hay.includes(q);
+    });
+  }, [stockRows, search, filterMode]);
 
-    return stockRows
-      .filter((r) => {
-        if (q) {
-          const hay = normalizeSearchText(
-            `${r.catalog.domaine} ${r.catalog.cuvee} ${r.catalog.vente}`
-          );
-          if (!hay.includes(q)) return false;
-        }
-        if (filter === 'avance') return r.hasAdvanceStock;
-        if (filter === 'dispo') return r.disponibleVente > 0;
-        if (filter === 'attente')
-          return r.enCommandeFournisseur > 0 || r.attenteReceptionClients > 0;
-        if (filter === 'deficit') return r.disponibleVente < 0;
-        if (!q && !showZeroRows && !hasActiveMovement(r)) return false;
-        return true;
-      })
-      .sort((a, b) => {
-        const rank = (r: StockSummaryRow) => {
-          if (r.disponibleVente < 0) return 0; // À commander en priorité
-          if (r.disponibleVente > 0) return 1; // Dispo libre
-          if (r.reserveClients > 0 || r.enCommandeFournisseur > 0) return 2;
-          if (r.physiqueCave > 0) return 3;
-          return 4;
-        };
-        const diff = rank(a) - rank(b);
-        if (diff !== 0) return diff;
-        return a.disponibleVente - b.disponibleVente;
-      });
-  }, [stockRows, search, filter, showZeroRows]);
-
-  const sortedLots = useMemo(() => {
+  const filteredLots = useMemo(() => {
     const q = normalizeSearchText(search);
     return [...lots]
       .filter((l) => {
         if (!q) return true;
         const cat = catalogMap.get(l.catalogId);
         const hay = normalizeSearchText(
-          `${cat?.domaine ?? ''} ${cat?.cuvee ?? ''} ${l.referenceFacture}`
+          `${l.referenceFacture} ${cat?.domaine ?? ''} ${cat?.cuvee ?? ''} ${l.notes ?? ''}`
         );
         return hay.includes(q);
       })
       .sort((a, b) => b.dateAchat.localeCompare(a.dateAchat));
   }, [lots, search, catalogMap]);
 
+  const totals = useMemo(() => {
+    let physique = 0;
+    let enCmd = 0;
+    let dispo = 0;
+    let deficit = 0;
+    let capital = 0;
+    for (const r of stockRows) {
+      physique += r.physiqueCave;
+      enCmd += r.enCommandeFournisseur;
+      if (r.disponibleVente > 0) dispo += r.disponibleVente;
+      if (r.disponibleVente < 0) deficit += Math.abs(r.disponibleVente);
+      capital += r.capitalImmobiliseHT;
+    }
+    const totalAdjustCostHT = adjustments.reduce(
+      (s, a) => s + (a.qtyDelta < 0 ? Math.abs(a.qtyDelta) * a.unitCostHT : 0),
+      0
+    );
+    return { physique, enCmd, dispo, deficit, capital, totalAdjustCostHT };
+  }, [stockRows, adjustments]);
+
+  const handleCreateAdjustment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjCatalogId || adjQty <= 0) return;
+    setAdjSaving(true);
+    try {
+      const cat = catalogMap.get(adjCatalogId);
+      const stockRow = stockRows.find((r) => r.catalog.id === adjCatalogId);
+      const signedDelta = adjDirection === 'out' ? -Math.abs(adjQty) : Math.abs(adjQty);
+      const adj: StockAdjustment = {
+        id: `adj_${Date.now()}`,
+        catalogId: adjCatalogId,
+        date: adjDate,
+        reason: adjReason,
+        qtyDelta: signedDelta,
+        unitCostHT: Number(
+          (stockRow?.coutMoyenPondereHT ?? cat?.tarifAchatHT ?? 0).toFixed(2)
+        ),
+        notes: adjNotes.trim() || undefined,
+        createdByUid: currentUserUid,
+        createdAt: new Date().toISOString(),
+      };
+      await onAddAdjustment(adj);
+      setAdjModalOpen(false);
+      setAdjNotes('');
+      setAdjQty(1);
+    } finally {
+      setAdjSaving(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413] tracking-tight">
-            Stock, dispos &amp; achats domaines
+          <h1 className="font-serif text-3xl font-semibold text-[#18181B]">
+            Stock, Lots &amp; Inventaire
           </h1>
-          <p className="text-sm text-[#6B6B66] mt-1">
-            Suivez vos bouteilles disponibles (Dispos), achats d’avance et besoins à
-            commander — même sans stockage permanent entre domaine et client.
+          <p className="text-sm text-[#6B6A65] mt-1">
+            Suivi temps réel cave physique, allocations en cours, réceptions domaines et mouvements d’inventaire.
           </p>
         </div>
-
-        <button
-          onClick={() => onOpenNewLot()}
-          className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors whitespace-nowrap shrink-0"
-        >
-          <PackagePlus className="w-4 h-4" />
-          <span>Nouvel achat domaine</span>
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              setAdjCatalogId(catalog[0]?.id ?? '');
+              setAdjModalOpen(true);
+            }}
+            className="px-3 py-2 rounded-lg border border-[#E5E4DF] bg-white hover:bg-[#FAF9F6] text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <ClipboardList className="w-3.5 h-3.5" />
+            Mouvement cave
+          </button>
+          <button
+            onClick={onOpenInvoiceAI}
+            className="px-3 py-2 rounded-lg border border-[#721C24] text-[#721C24] bg-[#FDF8F8] hover:bg-[#FAF0F0] text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            Importer facture IA
+          </button>
+          <button
+            onClick={onOpenNewLotModal}
+            className="px-3.5 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Nouveau lot
+          </button>
+        </div>
       </div>
 
-      {/* Transparent Excel vs Demo Mode Indicator */}
-      <DataSourceBanner
-        isDemoMode={isDemoMode}
-        onEnableDemoMode={onEnableDemoMode}
-        onDisableDemoMode={onDisableDemoMode}
-        onOpenInvoiceAI={onOpenInvoiceAI}
-        variant="stock"
-      />
-
-      {/* 4 Stock KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      {/* KPI Strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
-          <div className="text-xs text-[#6B6B66]">Reçu par LBG (stock)</div>
-          <div className="mt-1.5 text-xl font-semibold text-[#141413] font-mono-num">
+          <div className="text-[11px] uppercase tracking-wider text-[#6B6A65]">
+            Physique en cave
+          </div>
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">
             {totals.physique} btl
           </div>
         </div>
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
-          <div className="text-xs text-[#6B6B66]">En transit / commandé</div>
-          <div className="mt-1.5 text-xl font-semibold text-[#B45309] font-mono-num">
-            {totals.transit} btl
+          <div className="text-[11px] uppercase tracking-wider text-[#6B6A65]">
+            En commande domaine
+          </div>
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums">
+            {totals.enCmd} btl
           </div>
         </div>
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
-          <div className="text-xs text-[#6B6B66]">Réservé clients</div>
-          <div className="mt-1.5 text-xl font-semibold text-[#141413] font-mono-num">
-            {totals.reserve} btl
+          <div className="text-[11px] uppercase tracking-wider text-[#6B6A65]">
+            Disponible vente
           </div>
-        </div>
-        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
-          <div className="text-xs text-[#6B6B66]">Disponible libre</div>
-          <div className="mt-1.5 text-xl font-semibold text-[#15803D] font-mono-num">
+          <div className="mt-1 font-mono text-2xl font-semibold text-[#15803D] tabular-nums">
             {totals.dispo} btl
           </div>
         </div>
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4">
+          <div className="text-[11px] uppercase tracking-wider text-[#6B6A65]">
+            Déficit à commander
+          </div>
+          <div
+            className={`mt-1 font-mono text-2xl font-semibold tabular-nums ${
+              totals.deficit > 0 ? 'text-[#B91C1C]' : 'text-[#6B6A65]'
+            }`}
+          >
+            {totals.deficit} btl
+          </div>
+        </div>
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 col-span-2 lg:col-span-1">
-          <div className="text-xs text-[#6B6B66]">Capital immobilisé HT</div>
-          <div className="mt-1.5 text-xl font-semibold text-[#721C24] font-mono-num">
-            {formatEUR(totals.capitalHT)}
+          <div className="text-[11px] uppercase tracking-wider text-[#6B6A65]">
+            Capital stock HT
+          </div>
+          <div className="mt-1 font-mono text-2xl font-semibold text-[#721C24] tabular-nums">
+            {formatEUR(totals.capital)}
           </div>
         </div>
       </div>
 
-      {/* Toolbar: Segmented Subtabs + Search + Filters */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 bg-white border border-[#E5E4DF] rounded-xl p-4">
-        <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg w-fit max-w-full">
-          <button
-            onClick={() => setSubTab('inventory')}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-              subTab === 'inventory'
-                ? 'bg-white text-[#141413] shadow-sm'
-                : 'text-[#6B6B66] hover:text-[#141413]'
-            }`}
-          >
-            Position par cuvée ({activeStockCount} actives)
-          </button>
-          <button
-            onClick={() => setSubTab('lots')}
-            className={`px-3.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-              subTab === 'lots'
-                ? 'bg-white text-[#141413] shadow-sm'
-                : 'text-[#6B6B66] hover:text-[#141413]'
-            }`}
-          >
-            Lots fournisseurs &amp; réceptions ({lots.length})
-          </button>
-        </div>
+      {/* Sub-tabs & Search */}
+      <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+        <div className="px-4 pt-3 border-b border-[#E5E4DF] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex gap-1">
+            {(
+              [
+                ['inventory', `Inventaire cuvées (${stockRows.length})`],
+                ['lots', `Lots fournisseurs (${lots.length})`],
+                ['adjustments', `Mouvements & Casse (${adjustments.length})`],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setSubTab(id)}
+                className={`px-3.5 py-2.5 text-xs font-medium border-b-2 transition-colors cursor-pointer ${
+                  subTab === id
+                    ? 'border-[#721C24] text-[#721C24]'
+                    : 'border-transparent text-[#6B6A65] hover:text-[#18181B]'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          {subTab === 'inventory' && (
-            <div className="flex flex-wrap items-center gap-1 p-1 bg-[#F6F6F4] rounded-lg">
-              {(
-                [
-                  ['all', 'Tout'],
-                  ['avance', 'Acheté en avance'],
-                  ['dispo', 'Dispo à vendre'],
-                  ['attente', 'En attente domaine'],
-                  ['deficit', 'À commander'],
-                ] as const
-              ).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setFilter(key)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
-                    filter === key
-                      ? 'bg-white text-[#141413] shadow-sm'
-                      : 'text-[#6B6B66] hover:text-[#141413]'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+          <div className="flex items-center gap-2 pb-2 sm:pb-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-[#6B6A65] absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Filtrer…"
+                className="pl-8 pr-3 py-1.5 text-xs border border-[#E5E4DF] rounded-lg w-48 sm:w-56"
+              />
             </div>
-          )}
-
-          {subTab === 'inventory' && filter === 'all' && !search.trim() && stockRows.length > activeStockCount && (
-            <button
-              type="button"
-              onClick={() => setShowZeroRows((v) => !v)}
-              className="px-2.5 py-1.5 text-xs font-medium text-[#6B6B66] hover:text-[#141413] bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap"
-            >
-              {showZeroRows
-                ? `Masquer les ${stockRows.length - activeStockCount} sans mouvement`
-                : `Tout voir (${stockRows.length})`}
-            </button>
-          )}
-
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 text-[#6B6B66] absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Rechercher domaine, cuvée, facture..."
-              className="pl-9 pr-3 py-1.5 text-sm bg-[#FAF9F7] border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24] w-full"
-            />
+            {subTab === 'inventory' && (
+              <select
+                value={filterMode}
+                onChange={(e) =>
+                  setFilterMode(e.target.value as typeof filterMode)
+                }
+                className="text-xs border border-[#E5E4DF] rounded-lg px-2.5 py-1.5 bg-white"
+              >
+                <option value="all">Tout</option>
+                <option value="dispo">Disponibles (&gt;0)</option>
+                <option value="deficit">À commander (&lt;0)</option>
+                <option value="cave">En cave physique</option>
+              </select>
+            )}
           </div>
         </div>
-      </div>
 
-      {/* Subtab 1: Stock Table */}
-      {subTab === 'inventory' && (
-        <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+        {/* Sub-tab 1: Inventory */}
+        {subTab === 'inventory' && (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
-                  <th className="py-3 px-5 font-medium">Domaine &amp; Cuvée</th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Reçu LBG
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    En commande dom.
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Réservé clients
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Dispo réel vente
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Capital HT
-                  </th>
-                  <th className="py-3 px-5 font-medium text-right">Action</th>
+            <table className="w-full text-sm">
+              <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+                <tr>
+                  <th className="text-left py-2.5 px-4 font-medium">Domaine · Cuvée</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">Cave</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">Ajust.</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">En cmd</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">Réservé</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">Dispo</th>
+                  <th className="text-right py-2.5 px-4 font-medium">Capital HT</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#ECEAE4]">
-                {filteredStock.map((row) => (
-                  <tr
-                    key={row.catalog.id}
-                    className="hover:bg-[#FAF9F7] transition-colors"
-                  >
-                    <td className="py-3 px-5">
-                      <div className="font-medium text-[#141413]">
-                        {row.catalog.cuvee}
+              <tbody className="divide-y divide-[#E5E4DF]">
+                {filteredStock.map((r) => (
+                  <tr key={r.catalog.id} className="hover:bg-[#FAF9F6]">
+                    <td className="py-2.5 px-4">
+                      <div className="font-medium text-[#18181B]">
+                        {r.catalog.domaine} — {r.catalog.cuvee}
                       </div>
-                      <div className="text-xs text-[#6B6B66] flex items-center gap-1.5 mt-0.5">
-                        <span>{row.catalog.domaine}</span>
-                        <span aria-hidden="true">·</span>
-                        <span>{row.catalog.vente}</span>
-                        {row.hasAdvanceStock && (
-                          <>
-                            <span aria-hidden="true">·</span>
-                            <span className="text-[#721C24] font-medium">
-                              Achat d’avance
-                            </span>
-                          </>
-                        )}
+                      <div className="text-xs text-[#6B6A65]">
+                        {[r.catalog.region, r.catalog.millesime, r.catalog.format || '75 cl', r.catalog.color]
+                          .filter(Boolean)
+                          .join(' · ')}
                       </div>
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#141413]">
-                      {row.physiqueCave}
+                    <td className="py-2.5 px-2.5 text-right font-mono tabular-nums">
+                      {r.physiqueCave}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#B45309]">
-                      {row.enCommandeFournisseur > 0
-                        ? row.enCommandeFournisseur
+                    <td
+                      className={`py-2.5 px-2.5 text-right font-mono text-xs tabular-nums ${
+                        r.ajustementsNet < 0
+                          ? 'text-[#B91C1C]'
+                          : r.ajustementsNet > 0
+                            ? 'text-[#15803D]'
+                            : 'text-[#6B6A65]'
+                      }`}
+                    >
+                      {r.ajustementsNet !== 0
+                        ? `${r.ajustementsNet > 0 ? '+' : ''}${r.ajustementsNet}`
                         : '—'}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num">
-                      <div className="text-[#141413]">{row.reserveClients}</div>
-                      {row.reserveClients > 0 && (
-                        <div className="text-[11px] text-[#6B6B66]">
-                          {row.pretARemettreClients > 0
-                            ? `${row.pretARemettreClients} prêt`
-                            : `${row.attenteReceptionClients} att.`}
+                    <td className="py-2.5 px-2.5 text-right font-mono tabular-nums">
+                      {r.enCommandeFournisseur}
+                    </td>
+                    <td className="py-2.5 px-2.5 text-right font-mono tabular-nums">
+                      <div>{r.reserveClients}</div>
+                      {r.pretARemettreClients > 0 && (
+                        <div className="text-[10px] text-[#721C24]">
+                          {r.pretARemettreClients} prêt
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num font-semibold">
-                      {row.disponibleVente > 0 ? (
-                        <span className="text-[#15803D]">
-                          +{row.disponibleVente} btl
-                        </span>
-                      ) : row.disponibleVente < 0 ? (
-                        <span className="text-[#B91C1C]">
-                          {row.disponibleVente} (À commander)
-                        </span>
-                      ) : (
-                        <span className="text-[#6B6B66]">0</span>
-                      )}
+                    <td
+                      className={`py-2.5 px-2.5 text-right font-mono font-semibold tabular-nums ${
+                        r.disponibleVente < 0
+                          ? 'text-[#B91C1C]'
+                          : r.disponibleVente > 0
+                            ? 'text-[#15803D]'
+                            : 'text-[#6B6A65]'
+                      }`}
+                    >
+                      {r.disponibleVente < 0
+                        ? `À cmd ${Math.abs(r.disponibleVente)}`
+                        : r.disponibleVente}
                     </td>
-                    <td className="py-3 px-4 text-right font-mono-num text-[#141413]">
-                      {row.capitalImmobiliseHT > 0
-                        ? formatEUR(row.capitalImmobiliseHT)
-                        : '—'}
-                    </td>
-                    <td className="py-3 px-5 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => onOpenNewLot(row.catalog.id)}
-                        className="px-3 py-1.5 text-xs font-medium text-[#721C24] hover:bg-[#721C24]/10 border border-[#721C24]/25 rounded-md transition-colors"
-                      >
-                        + Approvisionner
-                      </button>
+                    <td className="py-2.5 px-4 text-right font-mono tabular-nums">
+                      {formatEUR(r.capitalImmobiliseHT)}
                     </td>
                   </tr>
                 ))}
-
-                {filteredStock.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={7}
-                      className="py-12 text-center text-sm text-[#6B6B66]"
-                    >
-                      <Warehouse className="w-7 h-7 mx-auto mb-2 text-[#9E9B93]" />
-                      Aucune cuvée ne correspond à ce filtre.
-                    </td>
-                  </tr>
-                )}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Subtab 2: Supplier Lots & 1-click Reception */}
-      {subTab === 'lots' && (
-        <div className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+        {/* Sub-tab 2: Supplier Lots */}
+        {subTab === 'lots' && (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
-                  <th className="py-3 px-5 font-medium">Date · Facture</th>
-                  <th className="py-3 px-4 font-medium">Domaine &amp; Cuvée</th>
-                  <th className="py-3 px-4 font-medium">Nature</th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Reçu / Cmd
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Coût HT / btl
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Total HT
-                  </th>
-                  <th className="py-3 px-5 font-medium text-right">
-                    Réception
-                  </th>
+            <table className="w-full text-sm">
+              <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+                <tr>
+                  <th className="text-left py-2.5 px-4 font-medium">Date · Facture</th>
+                  <th className="text-left py-2.5 px-3 font-medium">Cuvée</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">Reçu / Cmd</th>
+                  <th className="text-right py-2.5 px-2.5 font-medium">PU HT · Port</th>
+                  <th className="text-left py-2.5 px-3 font-medium">Règlement</th>
+                  <th className="text-right py-2.5 px-4 font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#ECEAE4]">
-                {sortedLots.map((lot) => {
+              <tbody className="divide-y divide-[#E5E4DF]">
+                {filteredLots.map((lot) => {
                   const cat = catalogMap.get(lot.catalogId);
-                  const isReceived = lot.qteRecue >= lot.qteCommandee;
+                  const isReceived =
+                    lot.statutLot === 'recu_cave' && lot.qteRecue >= lot.qteCommandee;
+                  const isUnpaid = lot.paymentStatus === 'non_paye';
+
                   return (
-                    <tr
-                      key={lot.id}
-                      className="hover:bg-[#FAF9F7] transition-colors"
-                    >
-                      <td className="py-3 px-5 whitespace-nowrap">
-                        <div className="font-mono-num text-xs text-[#141413]">
-                          {formatDateFR(lot.dateAchat)}
-                        </div>
-                        <div className="text-xs text-[#6B6B66] font-mono-num">
+                    <tr key={lot.id} className="hover:bg-[#FAF9F6]">
+                      <td className="py-2.5 px-4 whitespace-nowrap">
+                        <div className="font-mono text-xs text-[#18181B]">
                           {lot.referenceFacture}
                         </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="font-medium text-[#141413]">
-                          {cat?.cuvee ?? 'Cuvée inconnue'}
-                        </div>
-                        <div className="text-xs text-[#6B6B66] flex flex-wrap items-center gap-1.5 mt-0.5">
-                          <span>{cat?.domaine}</span>
-                          {(() => {
-                            const originInfo =
-                              LOT_ORIGIN_BADGES[lot.origin ?? 'manual'];
-                            return (
-                              <span
-                                className={`inline-block px-1.5 py-0.5 text-[10px] font-medium border rounded ${originInfo.className}`}
-                              >
-                                {originInfo.label}
-                              </span>
-                            );
-                          })()}
-                          {lot.notes && <span>· {lot.notes}</span>}
+                        <div className="text-[11px] text-[#6B6A65]">
+                          {formatDateFR(lot.dateAchat)} · {lot.typeAchat}
                         </div>
                       </td>
-                      <td className="py-3 px-4 text-xs whitespace-nowrap">
-                        {lot.typeAchat === 'avance' ? (
-                          <span className="font-medium text-[#721C24]">
-                            Achat en avance
-                          </span>
-                        ) : lot.typeAchat === 'cave' ? (
-                          <span className="font-medium text-[#141413]">
-                            Stock cave
-                          </span>
-                        ) : (
-                          <span className="text-[#6B6B66]">
-                            Allocation vente
-                          </span>
+                      <td className="py-2.5 px-3">
+                        <div className="font-medium text-[#18181B]">
+                          {cat ? `${cat.domaine} — ${cat.cuvee}` : lot.catalogId}
+                        </div>
+                        {lot.notes && (
+                          <div className="text-[11px] text-[#6B6A65] truncate max-w-xs">
+                            {lot.notes}
+                          </div>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono-num">
-                        <span
-                          className={
-                            isReceived ? 'text-[#15803D]' : 'text-[#B45309]'
-                          }
+                      <td className="py-2.5 px-2.5 text-right font-mono tabular-nums">
+                        {lot.qteRecue} / {lot.qteCommandee}
+                      </td>
+                      <td className="py-2.5 px-2.5 text-right font-mono tabular-nums whitespace-nowrap">
+                        <div>{formatEUR(lot.coutUnitaireHT)}</div>
+                        {(lot.shippingHT ?? 0) > 0 && (
+                          <div className="text-[10px] text-[#6B6A65]">
+                            + port {formatEUR(lot.shippingHT ?? 0)} HT
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <button
+                          onClick={() => onToggleLotPayment(lot)}
+                          className={`text-xs font-medium hover:underline cursor-pointer ${
+                            isUnpaid ? 'text-[#B91C1C]' : 'text-[#15803D]'
+                          }`}
                         >
-                          {lot.qteRecue}
-                        </span>
-                        <span className="text-[#6B6B66]">
-                          {' '}
-                          / {lot.qteCommandee}
-                        </span>
+                          {isUnpaid ? 'À payer' : 'Réglé'}
+                        </button>
+                        {lot.paymentDueDate && isUnpaid && (
+                          <div className="text-[10px] text-[#6B6A65]">
+                            Éch. {formatDateFR(lot.paymentDueDate)}
+                          </div>
+                        )}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono-num">
-                        {formatEUR(lot.coutUnitaireHT)}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono-num font-medium">
-                        {formatEUR(lot.coutUnitaireHT * lot.qteCommandee)}
-                      </td>
-                      <td className="py-3 px-5 text-right whitespace-nowrap">
-                        <div className="inline-flex items-center justify-end gap-2">
-                          {isReceived ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-[#15803D]">
-                              <Check className="w-3.5 h-3.5" /> Reçu en cave
-                            </span>
-                          ) : (
-                            <div className="inline-flex items-center gap-1.5">
-                              <input
-                                type="number"
-                                min={Math.max(1, lot.qteRecue)}
-                                max={lot.qteCommandee}
-                                value={
-                                  partialQtyDraft[lot.id] ?? lot.qteCommandee
-                                }
-                                onChange={(e) => {
-                                  const raw = Number(e.target.value);
-                                  const safe = Number.isFinite(raw)
-                                    ? raw
-                                    : lot.qteRecue;
-                                  setPartialQtyDraft((prev) => ({
-                                    ...prev,
-                                    [lot.id]: Math.max(
-                                      lot.qteRecue,
-                                      Math.min(lot.qteCommandee, safe)
-                                    ),
-                                  }));
-                                }}
-                                aria-label="Quantité reçue"
-                                className="w-14 px-2 py-1 text-xs text-right font-mono-num border border-[#D8D6D0] rounded"
-                              />
-                              <button
-                                onClick={() =>
-                                  onReceiveLot(
-                                    lot.id,
-                                    true,
-                                    partialQtyDraft[lot.id] ?? lot.qteCommandee
-                                  )
-                                }
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-[#15803D] hover:bg-[#166534] rounded-md transition-colors"
-                                title="Enregistre la réception en cave ET attribue les bouteilles aux commandes clients en attente (dans la limite du disponible)"
-                              >
-                                <PackageCheck className="w-3.5 h-3.5" />
-                                <span>Réceptionner</span>
-                              </button>
-                            </div>
-                          )}
-                          {onDeleteLot && (
-                            <button
-                              type="button"
-                              onClick={() => setConfirmDeleteLotId(lot.id)}
-                              className="p-1.5 text-[#9E9B93] hover:text-[#B91C1C] rounded-md transition-colors"
-                              title="Supprimer ce lot"
-                              aria-label="Supprimer ce lot"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
+                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                        {!isReceived ? (
+                          <button
+                            onClick={() => onReceiveLot(lot.id)}
+                            className="px-2.5 py-1 rounded bg-[#15803D] hover:bg-[#166534] text-white text-xs font-medium inline-flex items-center gap-1 mr-1 cursor-pointer"
+                          >
+                            <PackageCheck className="w-3.5 h-3.5" />
+                            Réceptionner
+                          </button>
+                        ) : (
+                          <span className="text-xs text-[#15803D] inline-flex items-center gap-1 mr-2">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            En cave
+                          </span>
+                        )}
+                        <button
+                          onClick={() => onEditLot(lot)}
+                          title="Modifier le lot"
+                          className="p-1.5 text-[#6B6A65] hover:text-[#721C24] cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => onDeleteLot(lot.id)}
+                          title="Supprimer le lot"
+                          className="p-1.5 text-[#6B6A65] hover:text-[#B91C1C] cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   );
@@ -586,43 +486,220 @@ export const StockView: React.FC<StockViewProps> = ({
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        )}
 
-      {confirmDeleteLotId && onDeleteLot && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="w-full max-w-sm bg-white border border-[#E5E4DF] rounded-xl shadow-2xl p-5 space-y-4">
-            <h3 className="text-base font-semibold text-[#141413]">
-              Supprimer ce lot fournisseur ?
-            </h3>
-            <p className="text-xs text-[#6B6B66]">
-              Cette action mettra immédiatement à jour votre stock physique, vos
-              achats en transit et votre journal des achats TVA.
-            </p>
-            <div className="flex justify-end gap-2">
+        {/* Sub-tab 3: Stock Adjustments */}
+        {subTab === 'adjustments' && (
+          <div>
+            {totals.totalAdjustCostHT > 0 && (
+              <div className="px-4 py-2.5 bg-[#FAF9F6] border-b border-[#E5E4DF] text-xs text-[#6B6A65] flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[#B45309]" />
+                  Coût HT cumulé des sorties hors-vente (casse, bouchonnée, dégustation) :
+                </span>
+                <strong className="font-mono text-[#B91C1C]">
+                  {formatEUR(totals.totalAdjustCostHT)} HT
+                </strong>
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+                  <tr>
+                    <th className="text-left py-2.5 px-4 font-medium">Date</th>
+                    <th className="text-left py-2.5 px-3 font-medium">Cuvée</th>
+                    <th className="text-left py-2.5 px-3 font-medium">Motif</th>
+                    <th className="text-right py-2.5 px-3 font-medium">Delta</th>
+                    <th className="text-right py-2.5 px-3 font-medium">Impact coût HT</th>
+                    <th className="text-right py-2.5 px-4 font-medium">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#E5E4DF]">
+                  {[...adjustments]
+                    .sort((a, b) => b.date.localeCompare(a.date))
+                    .map((adj) => {
+                      const cat = catalogMap.get(adj.catalogId);
+                      const costImpact = adj.qtyDelta * adj.unitCostHT;
+                      return (
+                        <tr key={adj.id}>
+                          <td className="py-2.5 px-4 font-mono text-xs whitespace-nowrap">
+                            {formatDateFR(adj.date)}
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <div className="font-medium text-[#18181B]">
+                              {cat ? `${cat.domaine} — ${cat.cuvee}` : adj.catalogId}
+                            </div>
+                            {adj.notes && (
+                              <div className="text-xs text-[#6B6A65]">{adj.notes}</div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-xs">
+                            {REASON_META[adj.reason]?.label ?? adj.reason}
+                          </td>
+                          <td
+                            className={`py-2.5 px-3 text-right font-mono font-semibold ${
+                              adj.qtyDelta < 0 ? 'text-[#B91C1C]' : 'text-[#15803D]'
+                            }`}
+                          >
+                            {adj.qtyDelta > 0 ? `+${adj.qtyDelta}` : adj.qtyDelta} btl
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-xs">
+                            {formatEUR(costImpact, true)}
+                          </td>
+                          <td className="py-2.5 px-4 text-right">
+                            {isAdmin && (
+                              <button
+                                onClick={() => onDeleteAdjustment(adj.id)}
+                                title="Supprimer le mouvement (admin)"
+                                className="p-1.5 text-[#6B6A65] hover:text-[#B91C1C] cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  {adjustments.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-xs text-[#6B6A65]">
+                        Aucun mouvement d’inventaire enregistré (casse, bouchonnée, dégustation, retour).
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Stock Adjustment Modal */}
+      {adjModalOpen && (
+        <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleCreateAdjustment}
+            className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-md p-6 space-y-4 text-sm"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E4DF]">
+              <h3 className="font-serif text-xl font-semibold">
+                Mouvement d’inventaire cave
+              </h3>
               <button
                 type="button"
-                onClick={() => setConfirmDeleteLotId(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-[#6B6B66]"
+                onClick={() => setAdjModalOpen(false)}
+                className="p-1 text-[#6B6A65] cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Cuvée *
+              </label>
+              <select
+                value={adjCatalogId}
+                onChange={(e) => setAdjCatalogId(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+              >
+                {catalog.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.domaine} — {c.cuvee}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Motif
+                </label>
+                <select
+                  value={adjReason}
+                  onChange={(e) => {
+                    const r = e.target.value as StockAdjustmentReason;
+                    setAdjReason(r);
+                    setAdjDirection(REASON_META[r].defaultSign < 0 ? 'out' : 'in');
+                  }}
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+                >
+                  {Object.entries(REASON_META).map(([k, m]) => (
+                    <option key={k} value={k}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Sens &amp; Quantité
+                </label>
+                <div className="flex gap-1.5">
+                  <select
+                    value={adjDirection}
+                    onChange={(e) =>
+                      setAdjDirection(e.target.value as 'out' | 'in')
+                    }
+                    className="px-2 py-2 border border-[#E5E4DF] rounded-lg bg-white font-mono text-xs"
+                  >
+                    <option value="out">Sortie (-)</option>
+                    <option value="in">Entrée (+)</option>
+                  </select>
+                  <input
+                    type="number"
+                    min="1"
+                    value={adjQty}
+                    onChange={(e) =>
+                      setAdjQty(Math.max(1, Math.round(Number(e.target.value) || 1)))
+                    }
+                    className="w-full px-2.5 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Date
+              </label>
+              <input
+                type="date"
+                value={adjDate}
+                onChange={(e) => setAdjDate(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                Commentaire (ex: dégustation client, casse colis…)
+              </label>
+              <input
+                value={adjNotes}
+                onChange={(e) => setAdjNotes(e.target.value)}
+                className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E4DF]">
+              <button
+                type="button"
+                onClick={() => setAdjModalOpen(false)}
+                className="px-4 py-2 rounded-lg border border-[#E5E4DF] cursor-pointer"
               >
                 Annuler
               </button>
               <button
-                type="button"
-                onClick={() => {
-                  onDeleteLot(confirmDeleteLotId);
-                  setConfirmDeleteLotId(null);
-                }}
-                className="px-4 py-1.5 text-xs font-medium text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+                type="submit"
+                disabled={adjSaving}
+                className="px-4 py-2 rounded-lg bg-[#721C24] text-white font-medium cursor-pointer"
               >
-                Supprimer
+                {adjSaving ? 'Enregistrement…' : 'Valider le mouvement'}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>

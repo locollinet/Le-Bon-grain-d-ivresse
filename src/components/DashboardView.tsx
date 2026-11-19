@@ -1,111 +1,81 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
-  ArrowRight,
-  CheckCircle2,
-  ClipboardPaste,
-  PackagePlus,
-  Plus,
+  TrendingUp,
   Wine,
+  ArrowRight,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  Calendar,
+  Plus,
+  Edit3,
+  Trash2,
   X,
+  Wallet,
+  CreditCard,
 } from 'lucide-react';
 import {
   ActiveTab,
   AppSettings,
+  CampaignStatus,
   OrderLine,
   SalesCampaign,
   StockSummaryRow,
+  SupplierLot,
   WineCatalogItem,
 } from '../types/wine';
 import {
-  computeBottleEconomics,
   computeOrderLineEconomics,
   formatDateFR,
   formatEUR,
   formatPct,
+  getOrderLineUnpaidTTC,
 } from '../utils/wineMath';
-import { DataSourceBanner } from './DataSourceBanner';
 
 interface DashboardViewProps {
   catalog: WineCatalogItem[];
+  lots: SupplierLot[];
   orders: OrderLine[];
   stockRows: StockSummaryRow[];
   campaigns: SalesCampaign[];
   settings: AppSettings;
-  isDemoMode: boolean;
-  onEnableDemoMode: () => void;
-  onDisableDemoMode: () => void;
   onNavigate: (tab: ActiveTab) => void;
-  onOpenCampaignOrders?: (vente: string) => void;
-  onOpenImport: () => void;
-  onOpenInvoiceAI: () => void;
-  onOpenNewLot: () => void;
-  onOpenNewDirectOrder: () => void;
-  onUpdateCampaignStatus: (
-    campaignId: string,
-    statut: SalesCampaign['statut']
-  ) => void;
-  onAddCampaign: (camp: SalesCampaign) => void;
+  onSaveCampaign: (campaign: SalesCampaign) => Promise<void>;
+  onDeleteCampaign: (campaignId: string) => Promise<void>;
 }
+
+const CAMPAIGN_STATUSES: CampaignStatus[] = [
+  'Envisagée',
+  'Planifiée',
+  'En cours',
+  'En attente domaine',
+  'Clôturée',
+  'Livrée',
+];
+
+const STATUS_DOT: Record<CampaignStatus, string> = {
+  Envisagée: 'bg-[#9CA3AF]',
+  Planifiée: 'bg-[#6B6A65]',
+  'En cours': 'bg-[#721C24]',
+  'En attente domaine': 'bg-[#B45309]',
+  Clôturée: 'bg-[#18181B]',
+  Livrée: 'bg-[#15803D]',
+};
 
 export const DashboardView: React.FC<DashboardViewProps> = ({
   catalog,
+  lots,
   orders,
   stockRows,
   campaigns,
   settings,
-  isDemoMode,
-  onEnableDemoMode,
-  onDisableDemoMode,
   onNavigate,
-  onOpenCampaignOrders,
-  onOpenImport,
-  onOpenInvoiceAI,
-  onOpenNewLot,
-  onOpenNewDirectOrder,
-  onUpdateCampaignStatus,
-  onAddCampaign,
+  onSaveCampaign,
+  onDeleteCampaign,
 }) => {
-  const [showGuide, setShowGuide] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('lbg_hide_guide_v1') !== '1';
-    } catch {
-      return true;
-    }
-  });
-  const [addingCampaign, setAddingCampaign] = useState(false);
-  const [newCampName, setNewCampName] = useState('');
-  const [newCampDate, setNewCampDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [newCampCanal, setNewCampCanal] =
-    useState<SalesCampaign['canal']>('Club');
-  const [newCampContact, setNewCampContact] = useState('Romain');
+  const [editingCampaign, setEditingCampaign] = useState<SalesCampaign | null>(null);
+  const [isNewCampaign, setIsNewCampaign] = useState(false);
 
-  const dismissGuide = () => {
-    setShowGuide(false);
-    try {
-      localStorage.setItem('lbg_hide_guide_v1', '1');
-    } catch {
-      // ignore
-    }
-  };
-
-  const handleCreateCampaign = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newCampName.trim()) return;
-    onAddCampaign({
-      id: `camp_${Date.now()}`,
-      nom: newCampName.trim(),
-      domaine: newCampName.trim(),
-      dateOuverture: newCampDate,
-      canal: newCampCanal,
-      contact: newCampContact.trim() || undefined,
-      statut: 'Planifiée',
-    });
-    setNewCampName('');
-    setAddingCampaign(false);
-  };
   const catalogMap = useMemo(
     () => new Map(catalog.map((c) => [c.id, c])),
     [catalog]
@@ -115,606 +85,628 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
     const validOrders = orders.filter((o) => o.statut !== 'annule');
     let caTTC = 0;
     let caHT = 0;
+    let margeNetEuro = 0;
     let coutTotalHT = 0;
-    let margeTotal = 0;
-    let totalBottles = 0;
-    let readyToDeliver = 0;
-    let awaitingDomain = 0;
+    let totalBottlesSold = 0;
+    let attenteDomaine = 0;
+    let pretRemise = 0;
+    let remisClient = 0;
+    let resteAEncaisserTTC = 0;
+    const unpaidOrderRefs = new Set<string>();
 
     for (const o of validOrders) {
-      const cat = catalogMap.get(o.catalogId);
-      const lineEcon = computeOrderLineEconomics(o, cat, settings);
-      if (!lineEcon.isPerso) {
-        totalBottles += o.qte;
-        caTTC += lineEcon.caTTC;
-        caHT += lineEcon.caHT;
-        coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
-        margeTotal += lineEcon.margeEuroTotal;
+      totalBottlesSold += o.qte;
+      const econ = computeOrderLineEconomics(o, catalogMap.get(o.catalogId), settings);
+      caTTC += econ.caTTC;
+      caHT += econ.caHT;
+      margeNetEuro += econ.margeEuroTotal;
+      coutTotalHT += econ.coutVinHT + econ.fraisLogistiqueHT;
+
+      const unpaid = getOrderLineUnpaidTTC(o);
+      if (unpaid > 0.01) {
+        resteAEncaisserTTC += unpaid;
+        unpaidOrderRefs.add(o.refCommande);
       }
-      if (o.statut === 'recu_lbg') readyToDeliver += o.qte;
-      if (o.statut === 'attente_reception') awaitingDomain += o.qte;
+
+      if (o.statut === 'attente_reception') attenteDomaine += o.qte;
+      else if (o.statut === 'recu_lbg') pretRemise += o.qte;
+      else if (o.statut === 'remis_client') remisClient += o.qte;
     }
 
-    const capitalImmobiliseHT = stockRows.reduce(
-      (s, r) => s + r.capitalImmobiliseHT,
-      0
-    );
-    const bottlesDispoVente = stockRows.reduce(
-      (s, r) => s + Math.max(0, r.disponibleVente),
+    const capitalImmobiliseHT = stockRows.reduce((s, r) => s + r.capitalImmobiliseHT, 0);
+    const physiqueCaveTotal = stockRows.reduce((s, r) => s + r.physiqueCave, 0);
+    const dispoTotal = stockRows.reduce((s, r) => s + Math.max(0, r.disponibleVente), 0);
+    const deficitTotal = stockRows.reduce((s, r) => s + Math.max(0, -r.disponibleVente), 0);
+
+    const unpaidLots = lots.filter((l) => l.paymentStatus === 'non_paye');
+    const facturesDomainesAPayerHT = unpaidLots.reduce(
+      (s, l) => s + l.coutUnitaireHT * l.qteCommandee + (l.shippingHT ?? 0),
       0
     );
 
-    const lowMarginItems = catalog
-      .filter((c) => c.prixLbgTTC > 0)
-      .map((c) => ({
-        item: c,
-        econ: computeBottleEconomics(c, settings),
-      }))
-      .filter((x) => x.econ.margePct < 5);
-
-    const stockDeficitRows = stockRows.filter((r) => r.disponibleVente < 0);
-    const advanceUnsoldRows = stockRows.filter(
-      (r) => r.hasAdvanceStock && r.disponibleVente > 0
-    );
+    const lowMarginWines = catalog.filter((item) => {
+      if (item.tarifAchatHT <= 0 || item.prixLbgTTC <= 0) return false;
+      const ht = item.prixLbgTTC / (1 + settings.tvaRate);
+      const cost =
+        item.tarifAchatHT +
+        (item.fraisLogistiqueOverride ?? settings.fraisLogistiqueParBouteille);
+      return ht - cost < 0;
+    });
 
     return {
       caTTC,
       caHT,
-      margeTotal,
-      margePct: coutTotalHT > 0 ? (margeTotal / coutTotalHT) * 100 : 0,
-      totalBottles,
-      readyToDeliver,
-      awaitingDomain,
+      margeNetEuro,
+      margePct: coutTotalHT > 0 ? (margeNetEuro / coutTotalHT) * 100 : 0,
+      totalBottlesSold,
+      attenteDomaine,
+      pretRemise,
+      remisClient,
+      resteAEncaisserTTC,
+      unpaidOrderCount: unpaidOrderRefs.size,
+      facturesDomainesAPayerHT,
+      unpaidLotsCount: unpaidLots.length,
       capitalImmobiliseHT,
-      bottlesDispoVente,
-      lowMarginItems,
-      stockDeficitRows,
-      advanceUnsoldRows,
+      physiqueCaveTotal,
+      dispoTotal,
+      deficitTotal,
+      lowMarginWines,
     };
-  }, [orders, catalogMap, settings, stockRows, catalog]);
+  }, [orders, catalog, catalogMap, settings, stockRows, lots]);
 
-  const campaignPerformance = useMemo(() => {
-    const byVente = new Map<
-      string,
-      {
-        vente: string;
-        bottles: number;
-        caTTC: number;
-        coutTotalHT: number;
-        marge: number;
-        ready: number;
-        waiting: number;
-        delivered: number;
-      }
-    >();
+  const sortedCampaigns = useMemo(
+    () =>
+      [...campaigns].sort((a, b) => b.dateOuverture.localeCompare(a.dateOuverture)),
+    [campaigns]
+  );
 
-    for (const o of orders) {
-      if (o.statut === 'annule') continue;
-      const cat = catalogMap.get(o.catalogId);
-      const lineEcon = computeOrderLineEconomics(o, cat, settings);
-      const existing = byVente.get(o.vente) ?? {
-        vente: o.vente,
-        bottles: 0,
-        caTTC: 0,
-        coutTotalHT: 0,
-        marge: 0,
-        ready: 0,
-        waiting: 0,
-        delivered: 0,
-      };
-      if (!lineEcon.isPerso) {
-        existing.bottles += o.qte;
-        existing.caTTC += lineEcon.caTTC;
-        existing.coutTotalHT += lineEcon.coutVinHT + lineEcon.fraisLogistiqueHT;
-        existing.marge += lineEcon.margeEuroTotal;
-      }
-      if (o.statut === 'recu_lbg') existing.ready += o.qte;
-      if (o.statut === 'attente_reception') existing.waiting += o.qte;
-      if (o.statut === 'remis_client') existing.delivered += o.qte;
-      byVente.set(o.vente, existing);
-    }
+  const openNewCampaign = () => {
+    setIsNewCampaign(true);
+    setEditingCampaign({
+      id: `camp_${Date.now()}`,
+      nom: '',
+      domaine: '',
+      dateOuverture: new Date().toISOString().slice(0, 10),
+      canal: 'Club',
+      contact: 'Romain',
+      statut: 'Planifiée',
+      notes: '',
+    });
+  };
 
-    return Array.from(byVente.values()).sort((a, b) => b.caTTC - a.caTTC);
-  }, [orders, catalogMap, settings]);
+  const handleSaveCampaignSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCampaign || !editingCampaign.nom.trim()) return;
+    await onSaveCampaign(editingCampaign);
+    setEditingCampaign(null);
+  };
 
   return (
-    <div className="space-y-8">
-      {/* Header Intro & Quick Actions */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+    <div className="space-y-6">
+      {/* Page Title */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-semibold text-[#141413] tracking-tight">
-            Vue d’ensemble du négoce
+          <h1 className="font-serif text-3xl font-semibold text-[#18181B]">
+            Tableau de bord
           </h1>
-          <p className="text-sm text-[#6B6B66] mt-1">
-            Synthèse des ventes HelloAsso, suivi des achats en avance et
-            rentabilité nette par campagne.
+          <p className="text-sm text-[#6B6A65] mt-1">
+            Vue synthétique des ventes, de la trésorerie et du pilotage des allocations.
           </p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap gap-2">
           <button
-            onClick={onOpenNewLot}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#141413] bg-white hover:bg-[#F6F6F4] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap shrink-0"
+            onClick={() => onNavigate('domains')}
+            className="px-3.5 py-2 rounded-lg border border-[#E5E4DF] bg-white hover:bg-[#FAF9F6] text-xs font-medium text-[#18181B] flex items-center gap-1.5 cursor-pointer"
           >
-            <PackagePlus className="w-4 h-4 text-[#721C24]" />
-            <span>Achat en avance</span>
+            Domaines &amp; Achats
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={onOpenNewDirectOrder}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-[#141413] bg-white hover:bg-[#F6F6F4] border border-[#D8D6D0] rounded-lg transition-colors whitespace-nowrap shrink-0"
+            onClick={() => onNavigate('orders')}
+            className="px-3.5 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] text-white text-xs font-medium flex items-center gap-1.5 cursor-pointer"
           >
-            <Plus className="w-4 h-4 text-[#721C24]" />
-            <span>Vente directe</span>
-          </button>
-          <button
-            onClick={onOpenImport}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors whitespace-nowrap shrink-0"
-          >
-            <ClipboardPaste className="w-4 h-4" />
-            <span>Importer HelloAsso</span>
+            Commandes clients
+            <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Transparent Excel vs Demo Mode Indicator */}
-      <DataSourceBanner
-        isDemoMode={isDemoMode}
-        onEnableDemoMode={onEnableDemoMode}
-        onDisableDemoMode={onDisableDemoMode}
-        onOpenInvoiceAI={onOpenInvoiceAI}
-        catalogCount={catalog.length}
-        variant="dashboard"
-      />
-
-      {/* Quick Daily Workflow Guide (dismissible) */}
-      {showGuide && (
-        <div className="bg-white border border-[#E5E4DF] rounded-xl p-4 sm:px-5">
-          <div className="flex items-center justify-between gap-4 mb-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-[#721C24]">
-              Vos 3 réflexes au quotidien
-            </span>
-            <button
-              type="button"
-              onClick={dismissGuide}
-              className="text-xs text-[#6B6B66] hover:text-[#141413] inline-flex items-center gap-1"
-            >
-              <span>Masquer</span>
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-            <button
-              type="button"
-              onClick={onOpenImport}
-              className="text-left p-3 bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#ECEAE4] rounded-lg transition-colors"
-            >
-              <div className="font-semibold text-[#141413]">
-                1. Importer vos ventes HelloAsso
-              </div>
-              <div className="text-[#6B6B66] mt-0.5">
-                Collez votre export HelloAsso (ou saisissez une vente directe / facture IA).
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('orders')}
-              className="text-left p-3 bg-[#FAF9F7] hover:bg-[#F3F1EC] border border-[#ECEAE4] rounded-lg transition-colors"
-            >
-              <div className="font-semibold text-[#141413]">
-                2. Suivre les réceptions &amp; livraisons
-              </div>
-              <div className="text-[#6B6B66] mt-0.5">
-                Faites avancer vos commandes (En attente → Reçu LBG → Remis), en passage cave ou direct domaine.
-              </div>
-            </button>
-            <div className="text-left p-3 bg-[#FAF9F7] border border-[#ECEAE4] rounded-lg flex flex-col justify-between gap-2">
-              <div>
-                <div className="font-semibold text-[#141413]">
-                  3. Relances clients, factures &amp; carte
-                </div>
-                <div className="text-[#6B6B66] mt-0.5">
-                  Ouvrez directement l’écran adapté :
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => onNavigate('clients')}
-                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#141413] border border-[#D8D6D0] rounded-md transition-colors"
-                >
-                  Clients &amp; WhatsApp
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('accounting')}
-                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#141413] border border-[#D8D6D0] rounded-md transition-colors"
-                >
-                  Factures &amp; TVA
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onNavigate('winelist')}
-                  className="px-2 py-1 text-[11px] font-medium bg-white hover:bg-[#ECEAE4] text-[#721C24] border border-[#721C24]/30 rounded-md transition-colors"
-                >
-                  Carte des vins
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 4-Column KPI Strip */}
+      {/* Primary KPI Grid (Commercial & Treasury) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
-          <div className="text-xs font-medium text-[#6B6B66]">
-            Chiffre d’affaires validé (TTC)
+          <div className="flex items-center justify-between text-xs font-medium text-[#6B6A65] uppercase tracking-wider">
+            <span>Chiffre d’affaires TTC</span>
+            <TrendingUp className="w-4 h-4 text-[#721C24]" />
           </div>
-          <div className="mt-2 text-2xl font-semibold text-[#141413] font-mono-num">
+          <div className="mt-2 font-mono text-2xl font-semibold text-[#18181B] tabular-nums">
             {formatEUR(metrics.caTTC)}
           </div>
-          <div className="mt-2 text-xs text-[#6B6B66] flex items-center gap-1.5 tabular-nums">
-            <span>{formatEUR(metrics.caHT)} HT</span>
-            <span aria-hidden="true">·</span>
-            <span>{metrics.totalBottles} bouteilles vendues</span>
+          <div className="mt-1 text-xs text-[#6B6A65]">
+            <span className="font-mono">{formatEUR(metrics.caHT)} HT</span> ·{' '}
+            {metrics.totalBottlesSold} btl vendues
           </div>
         </div>
 
         <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
-          <div className="text-xs font-medium text-[#6B6B66]">
-            Marge nette réalisée
+          <div className="flex items-center justify-between text-xs font-medium text-[#6B6A65] uppercase tracking-wider">
+            <span>Marge nette commerciale</span>
+            <Wine className="w-4 h-4 text-[#15803D]" />
           </div>
-          <div className="mt-2 text-2xl font-semibold text-[#15803D] font-mono-num">
-            {formatEUR(metrics.margeTotal, true)}
+          <div className="mt-2 font-mono text-2xl font-semibold text-[#15803D] tabular-nums">
+            {formatEUR(metrics.margeNetEuro, true)}
           </div>
-          <div className="mt-2 text-xs text-[#6B6B66] flex items-center gap-1.5 tabular-nums">
-            <span>Taux net : {formatPct(metrics.margePct)}</span>
-            <span aria-hidden="true">·</span>
-            <span>TVA &amp; port déduits</span>
+          <div className="mt-1 text-xs text-[#6B6A65]">
+            Taux net livré :{' '}
+            <span className="font-mono font-medium text-[#18181B]">
+              {formatPct(metrics.margePct)}
+            </span>
           </div>
         </div>
 
-        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
-          <div className="text-xs font-medium text-[#6B6B66]">
-            Capital immobilisé (stock &amp; avances)
+        <button
+          onClick={() => onNavigate('orders')}
+          className="bg-white border border-[#E5E4DF] hover:border-[#721C24] rounded-xl p-5 text-left transition-colors cursor-pointer"
+        >
+          <div className="flex items-center justify-between text-xs font-medium text-[#6B6A65] uppercase tracking-wider">
+            <span>Reste à encaisser clients</span>
+            <Wallet className="w-4 h-4 text-[#B45309]" />
           </div>
-          <div className="mt-2 text-2xl font-semibold text-[#141413] font-mono-num">
-            {formatEUR(metrics.capitalImmobiliseHT)}
+          <div
+            className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${
+              metrics.resteAEncaisserTTC > 0 ? 'text-[#B45309]' : 'text-[#15803D]'
+            }`}
+          >
+            {formatEUR(metrics.resteAEncaisserTTC)}
           </div>
-          <div className="mt-2 text-xs text-[#6B6B66] flex items-center gap-1.5 tabular-nums">
-            <span>{metrics.bottlesDispoVente} btl libres à vendre</span>
-            <span aria-hidden="true">·</span>
-            <button
-              onClick={() => onNavigate('stock')}
-              className="text-[#721C24] hover:underline font-medium"
-            >
-              Voir le stock
-            </button>
+          <div className="mt-1 text-xs text-[#6B6A65]">
+            {metrics.unpaidOrderCount > 0
+              ? `${metrics.unpaidOrderCount} commande(s) non soldée(s)`
+              : 'Toutes les commandes sont réglées'}
+          </div>
+        </button>
+
+        <button
+          onClick={() => onNavigate('stock')}
+          className="bg-white border border-[#E5E4DF] hover:border-[#721C24] rounded-xl p-5 text-left transition-colors cursor-pointer"
+        >
+          <div className="flex items-center justify-between text-xs font-medium text-[#6B6A65] uppercase tracking-wider">
+            <span>Factures domaines à régler</span>
+            <CreditCard className="w-4 h-4 text-[#B91C1C]" />
+          </div>
+          <div
+            className={`mt-2 font-mono text-2xl font-semibold tabular-nums ${
+              metrics.facturesDomainesAPayerHT > 0 ? 'text-[#B91C1C]' : 'text-[#15803D]'
+            }`}
+          >
+            {formatEUR(metrics.facturesDomainesAPayerHT)}
+          </div>
+          <div className="mt-1 text-xs text-[#6B6A65]">
+            {metrics.unpaidLotsCount > 0
+              ? `${metrics.unpaidLotsCount} lot(s) à payer · Cave ${formatEUR(metrics.capitalImmobiliseHT)} HT`
+              : `Aucun impayé · Cave ${formatEUR(metrics.capitalImmobiliseHT)} HT`}
+          </div>
+        </button>
+      </div>
+
+      {/* Operational Logistics & Alerts Strip */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#6B6A65]">
+            Flux bouteilles clients
+          </div>
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div>
+              <div className="text-xs text-[#B45309] flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5" /> Attente
+              </div>
+              <div className="font-mono text-xl font-semibold tabular-nums mt-0.5">
+                {metrics.attenteDomaine}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[#721C24] flex items-center gap-1">
+                <Wine className="w-3.5 h-3.5" /> Prêtes LBG
+              </div>
+              <div className="font-mono text-xl font-semibold tabular-nums mt-0.5">
+                {metrics.pretRemise}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[#15803D] flex items-center gap-1">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Remises
+              </div>
+              <div className="font-mono text-xl font-semibold tabular-nums mt-0.5">
+                {metrics.remisClient}
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
-          <div className="text-xs font-medium text-[#6B6B66]">
-            Logistique en cours
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5 space-y-3">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#6B6A65]">
+            État du stock cave
           </div>
-          <div className="mt-2 text-2xl font-semibold text-[#141413] font-mono-num">
-            {metrics.readyToDeliver + metrics.awaitingDomain} btl
+          <div className="grid grid-cols-3 gap-2 pt-1">
+            <div>
+              <div className="text-xs text-[#6B6A65]">Physique</div>
+              <div className="font-mono text-xl font-semibold tabular-nums mt-0.5">
+                {metrics.physiqueCaveTotal}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[#15803D]">Dispo vente</div>
+              <div className="font-mono text-xl font-semibold text-[#15803D] tabular-nums mt-0.5">
+                {metrics.dispoTotal}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-[#B91C1C]">À commander</div>
+              <div
+                className={`font-mono text-xl font-semibold tabular-nums mt-0.5 ${
+                  metrics.deficitTotal > 0 ? 'text-[#B91C1C]' : 'text-[#6B6A65]'
+                }`}
+              >
+                {metrics.deficitTotal}
+              </div>
+            </div>
           </div>
-          <div className="mt-2 text-xs flex items-center gap-1.5 tabular-nums">
-            <span className="text-[#15803D] font-medium">
-              {metrics.readyToDeliver} reçues par LBG
-            </span>
-            <span aria-hidden="true" className="text-[#C7C5BE]">
-              ·
-            </span>
-            <span className="text-[#B45309] font-medium">
-              {metrics.awaitingDomain} attente domaine
-            </span>
+        </div>
+
+        <div className="bg-white border border-[#E5E4DF] rounded-xl p-5 flex flex-col justify-between">
+          <div className="text-xs font-semibold uppercase tracking-wider text-[#6B6A65]">
+            Points de vigilance
+          </div>
+          <div className="space-y-2 mt-2 text-xs">
+            {metrics.deficitTotal > 0 && (
+              <button
+                onClick={() => onNavigate('domains')}
+                className="w-full text-left flex items-center justify-between text-[#B45309] hover:underline cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {metrics.deficitTotal} btl à commander aux domaines
+                </span>
+                <span>→</span>
+              </button>
+            )}
+            {metrics.lowMarginWines.length > 0 && (
+              <button
+                onClick={() => onNavigate('catalog')}
+                className="w-full text-left flex items-center justify-between text-[#B91C1C] hover:underline cursor-pointer"
+              >
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                  {metrics.lowMarginWines.length} cuvée(s) à marge nette négative
+                </span>
+                <span>→</span>
+              </button>
+            )}
+            {metrics.pretRemise > 0 && (
+              <button
+                onClick={() => onNavigate('clients')}
+                className="w-full text-left flex items-center justify-between text-[#721C24] hover:underline cursor-pointer"
+              >
+                <span>
+                  {metrics.pretRemise} btl prêtes en cave à remettre aux clients
+                </span>
+                <span>→</span>
+              </button>
+            )}
+            {metrics.deficitTotal === 0 &&
+              metrics.lowMarginWines.length === 0 &&
+              metrics.pretRemise === 0 && (
+                <div className="text-[#15803D] flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Aucune alerte opérationnelle en cours.
+                </div>
+              )}
           </div>
         </div>
       </div>
 
-      {/* Main Split: Campaign P&L + Actionable Alerts */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* Left 2 cols: Performance par Campagne */}
-        <div className="xl:col-span-2 bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E4DF]">
+      {/* Campaign Planning */}
+      <section className="bg-white border border-[#E5E4DF] rounded-xl overflow-hidden">
+        <div className="p-5 border-b border-[#E5E4DF] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-[#721C24]" />
             <div>
-              <h2 className="text-base font-semibold text-[#141413]">
-                Bilan par vente &amp; allocation
+              <h2 className="font-serif text-xl font-semibold text-[#18181B]">
+                Planning des campagnes &amp; allocations
               </h2>
-              <p className="text-xs text-[#6B6B66] mt-0.5">
-                Hors commandes annulées · Marge nette après TVA (
-                {Math.round(settings.tvaRate * 100)} %) et frais logistiques
+              <p className="text-xs text-[#6B6A65]">
+                Suivi des ventes ouvertes, clôtures, livraisons estimées et objectifs bouteilles.
               </p>
             </div>
-            <button
-              onClick={() => onNavigate('finance')}
-              className="inline-flex items-center gap-1 text-xs font-medium text-[#721C24] hover:underline whitespace-nowrap"
-            >
-              <span>Analyse complète</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
           </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-[#FAF9F7] text-xs text-[#6B6B66] border-b border-[#E5E4DF]">
-                  <th className="py-3 px-5 font-medium">Vente / Campagne</th>
-                  <th className="py-3 px-4 font-medium text-right">Btl</th>
-                  <th className="py-3 px-4 font-medium text-right">CA TTC</th>
-                  <th className="py-3 px-4 font-medium text-right">
-                    Marge nette
-                  </th>
-                  <th className="py-3 px-4 font-medium text-right">Taux</th>
-                  <th className="py-3 px-5 font-medium">Avancement</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[#ECEAE4]">
-                {campaignPerformance.map((row) => {
-                  const pct =
-                    row.coutTotalHT > 0 ? (row.marge / row.coutTotalHT) * 100 : 0;
-                  return (
-                    <tr
-                      key={row.vente}
-                      onClick={() => onOpenCampaignOrders?.(row.vente)}
-                      className={`hover:bg-[#FAF9F7] transition-colors ${
-                        onOpenCampaignOrders ? 'cursor-pointer' : ''
-                      }`}
-                    >
-                      <td className="py-3.5 px-5 font-medium text-[#141413]">
-                        {row.vente}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono-num text-[#141413]">
-                        {row.bottles}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono-num text-[#141413]">
-                        {formatEUR(row.caTTC)}
-                      </td>
-                      <td
-                        className={`py-3.5 px-4 text-right font-mono-num font-medium ${
-                          row.marge >= 0 ? 'text-[#15803D]' : 'text-[#B91C1C]'
-                        }`}
-                      >
-                        {formatEUR(row.marge, true)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-mono-num text-[#6B6B66]">
-                        {formatPct(pct)}
-                      </td>
-                      <td className="py-3.5 px-5 text-xs whitespace-nowrap">
-                        {row.waiting > 0 ? (
-                          <span className="text-[#B45309] font-medium">
-                            {row.waiting} btl en attente domaine
-                          </span>
-                        ) : row.ready > 0 ? (
-                          <span className="text-[#15803D] font-medium">
-                            {row.ready} btl reçues LBG
-                          </span>
-                        ) : (
-                          <span className="text-[#6B6B66]">
-                            Clôturée · {row.delivered} remises
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <button
+            onClick={openNewCampaign}
+            className="px-3.5 py-2 rounded-lg bg-[#18181B] hover:bg-[#3F3F46] text-white text-xs font-medium flex items-center gap-1.5 self-start sm:self-auto cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Planifier une campagne
+          </button>
         </div>
 
-        {/* Right col: Points d'attention & Planning */}
-        <div className="space-y-6">
-          <div className="bg-white border border-[#E5E4DF] rounded-xl p-5 space-y-4">
-            <h2 className="text-base font-semibold text-[#141413]">
-              Points d’attention négoce
-            </h2>
-
-            <div className="divide-y divide-[#ECEAE4]">
-              {/* Alert 1: Negative / low margin cuvees */}
-              <div className="py-3 first:pt-0">
-                <div className="flex items-start gap-2.5">
-                  <AlertTriangle className="w-4 h-4 text-[#B91C1C] shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <div className="font-medium text-[#141413]">
-                      {metrics.lowMarginItems.length} cuvée(s) sous 5 % de marge
-                      nette
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-[#F6F6F4] text-xs text-[#6B6A65] uppercase">
+              <tr>
+                <th className="text-left py-2.5 px-4 font-medium">Campagne · Domaine</th>
+                <th className="text-left py-2.5 px-3 font-medium">Dates</th>
+                <th className="text-left py-2.5 px-3 font-medium">Canal · Référent</th>
+                <th className="text-right py-2.5 px-3 font-medium">Objectif</th>
+                <th className="text-left py-2.5 px-3 font-medium">Statut</th>
+                <th className="text-right py-2.5 px-4 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[#E5E4DF]">
+              {sortedCampaigns.map((c) => (
+                <tr key={c.id} className="hover:bg-[#FAF9F6]">
+                  <td className="py-3 px-4">
+                    <div className="font-medium text-[#18181B]">{c.nom}</div>
+                    <div className="text-xs text-[#6B6A65]">
+                      {c.domaine}
+                      {c.notes ? ` · ${c.notes}` : ''}
                     </div>
-                    <p className="text-[#6B6B66] leading-relaxed">
-                      {metrics.lowMarginItems
-                        .slice(0, 2)
-                        .map(
-                          (x) =>
-                            `${x.item.cuvee} (${formatEUR(x.econ.margeEuro, true)})`
-                        )
-                        .join(' · ')}
-                    </p>
-                    <button
-                      onClick={() => onNavigate('catalog')}
-                      className="text-[#721C24] font-medium hover:underline inline-block pt-0.5"
-                    >
-                      Ajuster les tarifs →
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Alert 2: Advance stock ready to sell */}
-              <div className="py-3">
-                <div className="flex items-start gap-2.5">
-                  <Wine className="w-4 h-4 text-[#721C24] shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <div className="font-medium text-[#141413]">
-                      Stock acheté en avance disponible
+                  </td>
+                  <td className="py-3 px-3 text-xs text-[#6B6A65] font-mono whitespace-nowrap">
+                    <div>Ouv. {formatDateFR(c.dateOuverture)}</div>
+                    {c.dateCloture && <div>Clôt. {formatDateFR(c.dateCloture)}</div>}
+                    {c.dateLivraisonEstimee && (
+                      <div className="text-[#721C24]">
+                        Liv. {formatDateFR(c.dateLivraisonEstimee)}
+                      </div>
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-xs text-[#6B6A65]">
+                    {c.canal}
+                    {c.contact ? ` · ${c.contact}` : ''}
+                  </td>
+                  <td className="py-3 px-3 text-right font-mono text-xs tabular-nums">
+                    {c.targetBottles ? `${c.targetBottles} btl` : '—'}
+                  </td>
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${STATUS_DOT[c.statut]}`}
+                      />
+                      <select
+                        value={c.statut}
+                        onChange={(e) =>
+                          onSaveCampaign({
+                            ...c,
+                            statut: e.target.value as CampaignStatus,
+                          })
+                        }
+                        className="text-xs border border-[#E5E4DF] rounded px-2 py-1 bg-white"
+                      >
+                        {CAMPAIGN_STATUSES.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <p className="text-[#6B6B66] leading-relaxed">
-                      {metrics.advanceUnsoldRows.length > 0
-                        ? metrics.advanceUnsoldRows
-                            .slice(0, 3)
-                            .map(
-                              (r) =>
-                                `${r.catalog.domaine} ${r.catalog.cuvee} (${r.disponibleVente} btl)`
-                            )
-                            .join(' · ')
-                        : 'Aucun stock libre acheté en avance.'}
-                    </p>
+                  </td>
+                  <td className="py-3 px-4 text-right whitespace-nowrap">
                     <button
-                      onClick={() => onNavigate('stock')}
-                      className="text-[#721C24] font-medium hover:underline inline-block pt-0.5"
+                      onClick={() => {
+                        setIsNewCampaign(false);
+                        setEditingCampaign({ ...c });
+                      }}
+                      className="p-1.5 text-[#6B6A65] hover:text-[#18181B] cursor-pointer"
+                      title="Modifier"
                     >
-                      Ouvrir Stock &amp; Achats →
+                      <Edit3 className="w-3.5 h-3.5" />
                     </button>
-                  </div>
-                </div>
-              </div>
-
-              {/* Alert 3: Bottles ready for client pickup */}
-              <div className="py-3 last:pb-0">
-                <div className="flex items-start gap-2.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#15803D] shrink-0 mt-0.5" />
-                  <div className="text-xs space-y-1">
-                    <div className="font-medium text-[#141413]">
-                      {metrics.readyToDeliver} bouteilles reçues prêtes à
-                      remettre
-                    </div>
-                    <p className="text-[#6B6B66] leading-relaxed">
-                      Générez les récapitulatifs par client pour organiser vos
-                      remises groupées.
-                    </p>
                     <button
-                      onClick={() => onNavigate('clients')}
-                      className="text-[#721C24] font-medium hover:underline inline-block pt-0.5"
+                      onClick={() => onDeleteCampaign(c.id)}
+                      className="p-1.5 text-[#6B6A65] hover:text-[#B91C1C] cursor-pointer"
+                      title="Supprimer"
                     >
-                      Voir les rapports clients →
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+                  </td>
+                </tr>
+              ))}
+              {sortedCampaigns.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-8 text-center text-xs text-[#6B6A65]">
+                    Aucune campagne planifiée pour le moment.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-          {/* Planning des ventes (from Planning tab) */}
-          <div className="bg-white border border-[#E5E4DF] rounded-xl p-5">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <h2 className="text-base font-semibold text-[#141413]">
-                Planning des ventes
-              </h2>
+      {/* Edit / Add Campaign Modal */}
+      {editingCampaign && (
+        <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4">
+          <form
+            onSubmit={handleSaveCampaignSubmit}
+            className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-lg p-6 space-y-4 text-sm"
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-[#E5E4DF]">
+              <h3 className="font-serif text-xl font-semibold">
+                {isNewCampaign ? 'Nouvelle campagne' : 'Modifier la campagne'}
+              </h3>
               <button
                 type="button"
-                onClick={() => setAddingCampaign((v) => !v)}
-                className="text-xs font-medium text-[#721C24] hover:underline whitespace-nowrap"
+                onClick={() => setEditingCampaign(null)}
+                className="p-1 text-[#6B6A65] cursor-pointer"
               >
-                {addingCampaign ? 'Fermer' : '+ Planifier'}
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            {addingCampaign && (
-              <form
-                onSubmit={handleCreateCampaign}
-                className="mb-3 p-3 bg-[#FAF9F7] border border-[#E5E4DF] rounded-lg space-y-2"
-              >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Nom de la campagne *
+                </label>
                 <input
-                  type="text"
                   required
-                  value={newCampName}
-                  onChange={(e) => setNewCampName(e.target.value)}
-                  placeholder="Nom de la vente (ex : Ganevat Décembre)"
-                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-[#D8D6D0] rounded"
+                  value={editingCampaign.nom}
+                  onChange={(e) =>
+                    setEditingCampaign({ ...editingCampaign, nom: e.target.value })
+                  }
+                  placeholder="ex: Domaine Tissot Automne"
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
                 />
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    type="date"
-                    value={newCampDate}
-                    onChange={(e) => setNewCampDate(e.target.value)}
-                    className="flex-1 px-2 py-1 text-xs bg-white border border-[#D8D6D0] rounded"
-                  />
-                  <select
-                    value={newCampCanal}
-                    onChange={(e) =>
-                      setNewCampCanal(e.target.value as SalesCampaign['canal'])
-                    }
-                    className="px-2 py-1 text-xs bg-white border border-[#D8D6D0] rounded"
-                  >
-                    <option value="Club">Club</option>
-                    <option value="WhatsApp">WhatsApp</option>
-                    <option value="HelloAsso">HelloAsso</option>
-                    <option value="Vente directe">Vente directe</option>
-                  </select>
-                  <input
-                    type="text"
-                    value={newCampContact}
-                    onChange={(e) => setNewCampContact(e.target.value)}
-                    placeholder="Contact (Romain/Alice)"
-                    className="w-24 px-2 py-1 text-xs bg-white border border-[#D8D6D0] rounded"
-                  />
-                  <button
-                    type="submit"
-                    className="px-3 py-1 text-xs font-medium text-white bg-[#721C24] rounded hover:bg-[#5B151C]"
-                  >
-                    Ajouter
-                  </button>
-                </div>
-              </form>
-            )}
-
-            <div className="divide-y divide-[#ECEAE4]">
-              {campaigns.map((camp) => (
-                <div
-                  key={camp.id}
-                  className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-3"
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Domaine
+                </label>
+                <input
+                  value={editingCampaign.domaine}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      domaine: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Date d’ouverture
+                </label>
+                <input
+                  type="date"
+                  value={editingCampaign.dateOuverture}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      dateOuverture: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Date de clôture
+                </label>
+                <input
+                  type="date"
+                  value={editingCampaign.dateCloture ?? ''}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      dateCloture: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Livraison estimée
+                </label>
+                <input
+                  type="date"
+                  value={editingCampaign.dateLivraisonEstimee ?? ''}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      dateLivraisonEstimee: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Objectif (bouteilles)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editingCampaign.targetBottles ?? ''}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      targetBottles: e.target.value ? Number(e.target.value) : undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Canal
+                </label>
+                <select
+                  value={editingCampaign.canal}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      canal: e.target.value as SalesCampaign['canal'],
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
                 >
-                  <div className="min-w-0">
-                    <div className="text-sm font-medium text-[#141413] truncate">
-                      {camp.nom}
-                    </div>
-                    <div className="text-xs text-[#6B6B66] flex items-center gap-1.5">
-                      <span>{formatDateFR(camp.dateOuverture)}</span>
-                      <span aria-hidden="true">·</span>
-                      <span>{camp.canal}</span>
-                      {camp.contact && (
-                        <>
-                          <span aria-hidden="true">·</span>
-                          <span>{camp.contact}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <select
-                    aria-label={`Statut de ${camp.nom}`}
-                    value={camp.statut}
-                    onChange={(e) =>
-                      onUpdateCampaignStatus(
-                        camp.id,
-                        e.target.value as SalesCampaign['statut']
-                      )
-                    }
-                    className={`px-2 py-1 text-xs font-medium bg-[#FAF9F7] border border-[#E5E4DF] rounded cursor-pointer focus:outline-none ${
-                      camp.statut === 'Planifiée'
-                        ? 'text-[#721C24]'
-                        : camp.statut === 'Envisagée'
-                          ? 'text-[#6B6B66]'
-                          : camp.statut === 'En attente domaine'
-                            ? 'text-[#B45309]'
-                            : camp.statut === 'Clôturée' || camp.statut === 'Livrée'
-                              ? 'text-[#15803D]'
-                              : 'text-[#141413]'
-                    }`}
-                  >
-                    <option value="Envisagée">Envisagée</option>
-                    <option value="Planifiée">Planifiée</option>
-                    <option value="En cours">En cours</option>
-                    <option value="En attente domaine">En attente domaine</option>
-                    <option value="Clôturée">Clôturée</option>
-                    <option value="Livrée">Livrée</option>
-                  </select>
-                </div>
-              ))}
+                  <option value="Club">Club</option>
+                  <option value="HelloAsso">HelloAsso</option>
+                  <option value="WhatsApp">WhatsApp</option>
+                  <option value="Vente directe">Vente directe</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Référent
+                </label>
+                <input
+                  value={editingCampaign.contact ?? ''}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      contact: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+                  Notes
+                </label>
+                <textarea
+                  rows={2}
+                  value={editingCampaign.notes ?? ''}
+                  onChange={(e) =>
+                    setEditingCampaign({
+                      ...editingCampaign,
+                      notes: e.target.value || undefined,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+                />
+              </div>
             </div>
-          </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#E5E4DF]">
+              <button
+                type="button"
+                onClick={() => setEditingCampaign(null)}
+                className="px-4 py-2 rounded-lg border border-[#E5E4DF] text-sm cursor-pointer"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] text-white text-sm font-medium cursor-pointer"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </form>
         </div>
-      </div>
+      )}
     </div>
   );
 };

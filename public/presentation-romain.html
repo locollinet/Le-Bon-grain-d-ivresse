@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Le Bon Grain d’Ivresse — Guide de présentation pour Romain</title>
+  <meta name="description" content="Présentation de l’application de gestion négoce Le Bon Grain d’Ivresse v2 : comparatif avec le fichier Excel historique, import HelloAsso et tour complet des 10 onglets." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #F6F6F4;
+      --surface: #FFFFFF;
+      --surface-soft: #FAF9F7;
+      --border: #E5E4DF;
+      --border-strong: #D4D2CA;
+      --ink: #18181B;
+      --ink-muted: #5C5B57;
+      --ink-subtle: #8A8882;
+      --wine: #721C24;
+      --wine-hover: #5B151C;
+      --wine-soft: #FDF8F8;
+      --ok: #15803D;
+      --warn: #B45309;
+      --font-serif: 'Cormorant Garamond', Georgia, 'Times New Roman', serif;
+      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      background-color: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      margin: 0;
+      background-color: var(--bg);
+      color: var(--ink);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .tabular {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    /* Top Navigation Bar — Strict 3-Zone Contract */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 40;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-inner {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+    }
+
+    .brand-wordmark {
+      font-family: var(--font-serif);
+      font-size: 1.4rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .top-nav {
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--ink-muted);
+    }
+
+    .top-nav a {
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding: 4px 0;
+      border-bottom: 1px solid transparent;
+      transition: color 160ms ease, border-color 160ms ease;
+    }
+
+    .top-nav a:hover,
+    .top-nav a:focus-visible {
+      color: var(--wine);
+      border-bottom-color: var(--wine);
+      outline: none;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: #FFFFFF;
+      background-color: var(--wine);
+      border: 1px solid var(--wine);
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background-color 160ms ease, transform 160ms ease;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--wine-hover);
+    }
+
+    .btn-primary:focus-visible,
+    .btn-secondary:focus-visible,
+    .filter-btn:focus-visible {
+      outline: 2px solid var(--wine);
+      outline-offset: 2px;
+    }
+
+    .btn-secondary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 20px;
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--ink);
+      background-color: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 8px;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: background-color 160ms ease, border-color 160ms ease;
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--surface-soft);
+      border-color: var(--ink-muted);
+    }
+
+    /* Main Container */
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Hero Section */
+    .hero {
+      padding: 64px 0 48px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.35fr 0.85fr;
+      gap: 48px;
+      align-items: stretch;
+    }
+
+    .editorial-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+      color: var(--ink-muted);
+      margin-bottom: 18px;
+    }
+
+    .hero h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(2.4rem, 4.2vw, 3.6rem);
+      font-weight: 600;
+      line-height: 1.08;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin: 0 0 20px;
+      text-wrap: balance;
+      max-width: 18ch;
+    }
+
+    .hero-lead {
+      font-size: 1.0625rem;
+      line-height: 1.7;
+      color: var(--ink-muted);
+      max-width: 60ch;
+      margin: 0 0 28px;
+    }
+
+    .hero-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .hero-note {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 20px;
+    }
+
+    .hero-note-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .hero-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: 10px;
+      object-fit: cover;
+      border: 1px solid var(--border);
+      background: var(--surface-soft);
+      flex-shrink: 0;
+    }
+
+    .hero-note-title {
+      font-family: var(--font-serif);
+      font-size: 1.35rem;
+      font-weight: 600;
+      line-height: 1.2;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .hero-note-sub {
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+      margin: 2px 0 0;
+    }
+
+    .hero-quote {
+      font-family: var(--font-serif);
+      font-size: 1.35rem;
+      font-style: italic;
+      line-height: 1.45;
+      color: var(--ink);
+      margin: 0;
+    }
+
+    .formula-box {
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+    }
+
+    .formula-box strong {
+      color: var(--ink);
+      display: block;
+      margin-bottom: 4px;
+      font-size: 0.75rem;
+      letter-spacing: 0.03em;
+    }
+
+    .formula-code {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--wine);
+    }
+
+    /* 4-Column Proof Strip below Hero */
+    .kpi-strip {
+      margin-top: 40px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .kpi-cell {
+      padding: 22px 24px;
+      border-right: 1px solid var(--border);
+    }
+
+    .kpi-cell:last-child {
+      border-right: none;
+    }
+
+    .kpi-value {
+      font-family: var(--font-mono);
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: var(--ink);
+      line-height: 1.15;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .kpi-value.accent {
+      color: var(--wine);
+    }
+
+    .kpi-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin-top: 6px;
+    }
+
+    .kpi-desc {
+      font-size: 0.78rem;
+      color: var(--ink-muted);
+      margin-top: 2px;
+    }
+
+    /* Sections */
+    .section {
+      padding: 64px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section:last-of-type {
+      border-bottom: none;
+    }
+
+    .section-header {
+      margin-bottom: 36px;
+      max-width: 68ch;
+    }
+
+    .section-index {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--wine);
+      margin-bottom: 8px;
+    }
+
+    .section h2 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.85rem, 3vw, 2.5rem);
+      font-weight: 600;
+      line-height: 1.15;
+      letter-spacing: -0.015em;
+      color: var(--ink);
+      margin: 0 0 12px;
+      text-wrap: balance;
+    }
+
+    .section-intro {
+      font-size: 0.96875rem;
+      color: var(--ink-muted);
+      margin: 0;
+      line-height: 1.7;
+    }
+
+    /* Comparison Table */
+    .table-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .table-scroll {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.875rem;
+    }
+
+    thead th {
+      background: var(--surface-soft);
+      padding: 14px 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+      color: var(--ink-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      line-height: 1.55;
+    }
+
+    tbody tr:last-child td {
+      border-bottom: none;
+    }
+
+    .col-topic {
+      font-weight: 600;
+      color: var(--ink);
+      width: 22%;
+    }
+
+    .col-excel {
+      color: var(--ink-muted);
+      width: 36%;
+    }
+
+    .col-app {
+      color: var(--ink);
+      width: 42%;
+    }
+
+    .col-app strong {
+      color: var(--wine);
+      font-weight: 600;
+    }
+
+    /* HelloAsso & Facture IA Explainer */
+    .split-two {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 28px;
+      align-items: stretch;
+    }
+
+    .surface-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 32px;
+    }
+
+    .surface-card h3 {
+      font-family: var(--font-serif);
+      font-size: 1.65rem;
+      font-weight: 600;
+      line-height: 1.2;
+      color: var(--ink);
+      margin: 0 0 10px;
+    }
+
+    .card-kicker {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--wine);
+      margin-bottom: 8px;
+    }
+
+    .step-list {
+      list-style: none;
+      padding: 0;
+      margin: 24px 0 0;
+    }
+
+    .step-item {
+      display: grid;
+      grid-template-columns: 36px 1fr;
+      gap: 14px;
+      padding: 16px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .step-item:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .step-num {
+      font-family: var(--font-mono);
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--wine);
+      padding-top: 2px;
+    }
+
+    .step-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 0 0 4px;
+    }
+
+    .step-body {
+      font-size: 0.85rem;
+      color: var(--ink-muted);
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    .clean-bullets {
+      list-style: none;
+      padding: 0;
+      margin: 18px 0 0;
+    }
+
+    .clean-bullets li {
+      padding: 10px 0;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--ink-muted);
+      line-height: 1.55;
+    }
+
+    .clean-bullets li:first-child {
+      border-top: none;
+      padding-top: 0;
+    }
+
+    .clean-bullets strong {
+      color: var(--ink);
+      font-weight: 600;
+    }
+
+    .divider-space {
+      height: 1px;
+      background: var(--border);
+      margin: 24px 0;
+    }
+
+    /* Interactive Tabs Filter for the 10 Modules */
+    .filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    .segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      background: #ECEBE6;
+      border-radius: 10px;
+    }
+
+    .filter-btn {
+      border: none;
+      background: transparent;
+      color: var(--ink-muted);
+      font-family: var(--font-sans);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      padding: 8px 14px;
+      border-radius: 7px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 150ms ease, color 150ms ease;
+    }
+
+    .filter-btn:hover {
+      color: var(--ink);
+    }
+
+    .filter-btn.active {
+      background: var(--surface);
+      color: var(--wine);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+    .filter-count {
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+    }
+
+    .modules-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 20px;
+    }
+
+    .module-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 26px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .module-card.hidden {
+      display: none;
+    }
+
+    .module-meta {
+      font-size: 0.75rem;
+      color: var(--ink-subtle);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .module-meta .mod-cat {
+      color: var(--wine);
+      font-weight: 600;
+    }
+
+    .module-card h3 {
+      font-family: var(--font-serif);
+      font-size: 1.5rem;
+      font-weight: 600;
+      line-height: 1.2;
+      margin: 0;
+      color: var(--ink);
+    }
+
+    .module-desc {
+      font-size: 0.875rem;
+      color: var(--ink-muted);
+      margin: 0;
+      line-height: 1.6;
+    }
+
+    .module-gain {
+      margin-top: auto;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8125rem;
+      color: var(--ink);
+      line-height: 1.5;
+    }
+
+    .module-gain span {
+      color: var(--ink-subtle);
+      font-weight: 500;
+    }
+
+    /* Timeline / Workflow */
+    .workflow-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .wf-step {
+      padding: 24px 20px;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .wf-step:last-child {
+      border-right: none;
+    }
+
+    .wf-num {
+      font-family: var(--font-mono);
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--wine);
+    }
+
+    .wf-title {
+      font-size: 0.9375rem;
+      font-weight: 600;
+      color: var(--ink);
+      margin: 0;
+      line-height: 1.35;
+    }
+
+    .wf-text {
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+      margin: 0;
+      line-height: 1.55;
+    }
+
+    /* Onboarding & Guarantees */
+    .onboarding-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+    }
+
+    /* Footer */
+    .footer {
+      padding: 36px 0 48px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8125rem;
+      color: var(--ink-muted);
+    }
+
+    .footer-inner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    /* Responsive */
+    @media (max-width: 980px) {
+      .hero-grid,
+      .split-two,
+      .onboarding-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .kpi-strip {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .kpi-cell:nth-child(2) {
+        border-right: none;
+      }
+
+      .kpi-cell:nth-child(1),
+      .kpi-cell:nth-child(2) {
+        border-bottom: 1px solid var(--border);
+      }
+
+      .workflow-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .wf-step {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .wf-step:last-child {
+        border-bottom: none;
+      }
+
+      .modules-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .top-nav {
+        display: none;
+      }
+    }
+
+    @media (max-width: 600px) {
+      .kpi-strip {
+        grid-template-columns: 1fr;
+      }
+
+      .kpi-cell {
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .kpi-cell:last-child {
+        border-bottom: none;
+      }
+
+      .hero {
+        padding: 40px 0 36px;
+      }
+
+      .section {
+        padding: 44px 0;
+      }
+    }
+
+    /* Clean Print / PDF Mode */
+    @media print {
+      @page {
+        margin: 14mm;
+      }
+
+      html, body {
+        background: #FFFFFF !important;
+        font-size: 11pt;
+      }
+
+      .topbar,
+      .no-print {
+        display: none !important;
+      }
+
+      .hero,
+      .section {
+        padding: 20px 0;
+      }
+
+      .module-card,
+      .surface-card,
+      .table-card,
+      .hero-note,
+      .kpi-strip,
+      .workflow-grid {
+        break-inside: avoid;
+      }
+
+      .module-card.hidden {
+        display: flex !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Top Bar (3 zones) -->
+  <header class="topbar no-print">
+    <div class="topbar-inner">
+      <a href="#top" class="brand-wordmark">Le Bon Grain d’Ivresse</a>
+      <nav class="top-nav" aria-label="Sections du guide">
+        <a href="#comparatif">Excel vs Appli</a>
+        <a href="#helloasso">Import HelloAsso</a>
+        <a href="#modules">Les 10 onglets</a>
+        <a href="#demarrage">Démarrage</a>
+      </nav>
+      <button type="button" class="btn-primary" onclick="window.print()">
+        Imprimer / PDF
+      </button>
+    </div>
+  </header>
+
+  <main id="top" class="container">
+    <!-- Hero -->
+    <section class="hero">
+      <div class="hero-grid">
+        <div>
+          <div class="editorial-meta">
+            <span>Note de présentation</span>
+            <span aria-hidden="true">·</span>
+            <span>Pour Romain Becker</span>
+            <span aria-hidden="true">·</span>
+            <span>Outil de négoce &amp; allocations</span>
+          </div>
+          <h1>Votre fichier Excel de négoce, transformé en véritable outil de cave.</h1>
+          <p class="hero-lead">
+            Nous sommes partis de votre tableur existant — vos cuvées, vos domaines, vos campagnes
+            HelloAsso et exactement vos formules de marge — pour construire une application web
+            synchronisée dans le cloud. L’objectif : supprimer les copier-coller manuels, sécuriser
+            votre stock réel et professionnaliser vos commandes domaines et votre facturation.
+          </p>
+          <div class="hero-actions no-print">
+            <a href="/" class="btn-primary">Ouvrir l’application</a>
+            <a href="#helloasso" class="btn-secondary">Comprendre « Importer HelloAsso »</a>
+          </div>
+        </div>
+
+        <aside class="hero-note">
+          <div class="hero-note-header">
+            <img
+              src="/logo-lbg.png"
+              alt="Logo Le Bon Grain d’Ivresse"
+              class="hero-logo"
+              onerror="this.style.display='none'"
+            />
+            <div>
+              <h2 class="hero-note-title">Rien n’est perdu.</h2>
+              <p class="hero-note-sub">Toutes vos données Excel sont déjà prêtes à être chargées en 1 clic.</p>
+            </div>
+          </div>
+
+          <p class="hero-quote">
+            « Passer d’un tableur où tout se calcule à la main à un espace unique où chaque bouteille
+            commandée met automatiquement à jour le stock, la marge, le bon domaine et la facture client. »
+          </p>
+
+          <div class="formula-box">
+            <strong>Votre règle tarifaire historique conservée à l’identique</strong>
+            <div class="formula-code">
+              Tarif conseillé TTC = ((EXW HT / (1 − 10 %)) + 1,00 € amont + 3,50 € aval) × 1,20
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <!-- 4-Column Proof Strip -->
+      <div class="kpi-strip" aria-label="Données déjà reprises de votre fichier Excel">
+        <div class="kpi-cell">
+          <div class="kpi-value accent">396</div>
+          <div class="kpi-label">Cuvées reprises</div>
+          <div class="kpi-desc">Catalogue tarifaire EXW, prix LBG et benchmarks marché</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-value">41</div>
+          <div class="kpi-label">Domaines viticoles</div>
+          <div class="kpi-desc">Fiches fournisseurs prêtes avec suivi de franco</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-value">149 btl</div>
+          <div class="kpi-label">Ventes historiques migrées</div>
+          <div class="kpi-desc">75 lignes de commandes (8 048 € TTC) déjà structurées</div>
+        </div>
+        <div class="kpi-cell">
+          <div class="kpi-value">12</div>
+          <div class="kpi-label">Campagnes &amp; allocations</div>
+          <div class="kpi-desc">Planning suivi de l’ouverture jusqu’à la livraison</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 01: Comparatif Excel vs Application -->
+    <section id="comparatif" class="section">
+      <div class="section-header">
+        <div class="section-index">01. Pourquoi passer du tableur à l’application</div>
+        <h2>Ce qui change concrètement par rapport à votre fichier Excel</h2>
+        <p class="section-intro">
+          Votre fichier Excel fait déjà un travail remarquable sur le calcul de rentabilité. En revanche,
+          dès que les campagnes, les achats en avance et les remises partielles se multiplient, un tableur
+          devient long à maintenir et risqué à manipuler. Voici le comparatif point par point.
+        </p>
+      </div>
+
+      <div class="table-card">
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Besoin quotidien</th>
+                <th>Avant · Dans le fichier Excel</th>
+                <th>Maintenant · Dans l’application v2</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="col-topic">Ventes HelloAsso</td>
+                <td class="col-excel">
+                  Export à ouvrir, lignes unitaires à regrouper à la main, préfixe « Carte » à nettoyer, risque d’importer deux fois la même commande.
+                </td>
+                <td class="col-app">
+                  <strong>Import en 1 clic (« Importer HelloAsso »)</strong> : regroupe les bouteilles, applique les codes promo, écarte les annulations et bloque automatiquement les doublons.
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Stock réel vs Réservé</td>
+                <td class="col-excel">
+                  Difficile de distinguer ce qui est physiquement en cave, ce qui est payé en attente chez le vigneron, et ce qui reste vraiment libre à vendre.
+                </td>
+                <td class="col-app">
+                  <strong>4 compteurs automatiques par cuvée</strong> : Physique cave, En commande domaine, Réservé clients et Disponible libre (avec alerte rouge si déficit à commander).
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Commandes aux domaines</td>
+                <td class="col-excel">
+                  Totalisation manuelle des quantités par cuvée et rédaction d’un mail ou tableur à part pour chaque vigneron.
+                </td>
+                <td class="col-app">
+                  <strong>Bons de commande consolidés (PO-AAAA-XXXX)</strong> générés depuis vos déficits avec arrondi cartons (×6 / ×12), contrôle du franco de port et création auto des lots d’achat.
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Facturation, Avoirs &amp; TVA</td>
+                <td class="col-excel">
+                  Factures rédigées hors Excel ou modèles manuels, numérotation à surveiller, pas de gestion propre des avoirs ni de journal comptable.
+                </td>
+                <td class="col-app">
+                  <strong>Factures conformes (FA-AAAA-XXXX) et Avoirs (AV-AAAA-XXXX)</strong> immuables, mentions légales + IBAN, suivi TVA collectée/déductible et export CSV comptable (PCG).
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Suivi clients &amp; relances</td>
+                <td class="col-excel">
+                  Filtrer les onglets pour savoir qui doit encore venir chercher ses bouteilles, et rédiger chaque message WhatsApp un par un.
+                </td>
+                <td class="col-app">
+                  <strong>Fiches clients Particuliers / Club / Pros (SIRET)</strong> : solde impayé, bouteilles prêtes en cave, message WhatsApp prêt à copier et fiche imprimable sans exposer vos marges.
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Ventes directes &amp; Expéditions</td>
+                <td class="col-excel">
+                  Une ligne ajoutée à la main pour les ventes hors HelloAsso, pas de suivi de paiement partiel, de transporteur ni de bon de livraison.
+                </td>
+                <td class="col-app">
+                  <strong>Commande multi-cuvées</strong>, suivi d’encaissement (À encaisser / Partiel / Payé), n° de suivi transporteur et <strong>Bon de livraison (BL)</strong> imprimable sans prix.
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Historique des marges</td>
+                <td class="col-excel">
+                  Si un domaine augmente son tarif EXW sur un nouveau millésime, la modification écrase souvent les marges des ventes passées.
+                </td>
+                <td class="col-app">
+                  <strong>Coûts figés à la date de commande</strong> : changer un tarif catalogue ne fausse jamais vos bilans financiers des mois précédents.
+                </td>
+              </tr>
+              <tr>
+                <td class="col-topic">Accès &amp; Sauvegarde</td>
+                <td class="col-excel">
+                  Fichier local sur un ordinateur, risque de conflit de versions si consulté ailleurs ou partagé.
+                </td>
+                <td class="col-app">
+                  <strong>Base cloud Firebase sécurisée</strong> accessible sur ordinateur et téléphone en temps réel, avec invitation d’équipe et sauvegarde JSON téléchargeable à tout moment.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 02: Zoom Importer HelloAsso & Facture IA -->
+    <section id="helloasso" class="section">
+      <div class="section-header">
+        <div class="section-index">02. Les deux raccourcis qui font gagner le plus de temps</div>
+        <h2>Concrètement, c’est quoi « Importer HelloAsso » et « Facture IA » ?</h2>
+        <p class="section-intro">
+          Ces deux boutons visibles en haut de l’écran ne remplacent pas vos outils existants : ils
+          lisent automatiquement vos exports HelloAsso et vos factures PDF pour vous éviter toute
+          ressaisie manuelle. Rien n’est enregistré sans votre validation visuelle finale.
+        </p>
+      </div>
+
+      <div class="split-two">
+        <!-- HelloAsso Deep Dive -->
+        <article class="surface-card">
+          <div class="card-kicker">Bouton rouge en haut à droite · Ventes campagnes</div>
+          <h3>Importer HelloAsso</h3>
+          <p class="section-intro">
+            Quand une vente privée ou une allocation se termine (ou en cours de vente), HelloAsso vous
+            fournit un fichier Excel/CSV avec toutes les commandes clients. Au lieu de recopier chaque
+            acheteur et chaque bouteille à la main, vous donnez cet export brut à l’application.
+          </p>
+
+          <ol class="step-list">
+            <li class="step-item">
+              <div class="step-num">01</div>
+              <div>
+                <h4 class="step-title">Déposez le fichier ou copiez-collez les lignes</h4>
+                <p class="step-body">
+                  Accepte directement le fichier <strong>.xlsx / .csv</strong> téléchargé depuis
+                  HelloAsso, ou un simple copier-coller des lignes depuis Excel.
+                </p>
+              </div>
+            </li>
+            <li class="step-item">
+              <div class="step-num">02</div>
+              <div>
+                <h4 class="step-title">Nettoyage &amp; rapprochement automatiques</h4>
+                <p class="step-body">
+                  L’outil nettoie le préfixe « Carte », regroupe les bouteilles identiques d’une même
+                  commande en quantités, déduit les codes promo du montant TTC, isole les commandes
+                  annulées et reconnaît la cuvée correspondante dans votre catalogue.
+                </p>
+              </div>
+            </li>
+            <li class="step-item">
+              <div class="step-num">03</div>
+              <div>
+                <h4 class="step-title">Protection anti-doublons &amp; validation</h4>
+                <p class="step-body">
+                  Vous pouvez réimporter le même export 3 fois pendant la campagne : les références
+                  déjà présentes sont ignorées automatiquement. Vous vérifiez l’aperçu, puis cliquez
+                  sur « Importer » — votre stock réservé, vos clients et vos bilans se mettent à jour
+                  instantanément.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </article>
+
+        <!-- Facture IA & Assistant IA -->
+        <article class="surface-card">
+          <div class="card-kicker">Gains de temps IA · Toujours sous votre contrôle</div>
+          <h3>Facture IA &amp; Assistant Négoce</h3>
+          <p class="section-intro">
+            Deux outils complémentaires pour vos factures fournisseurs et vos questions rapides en cave.
+          </p>
+
+          <ul class="clean-bullets">
+            <li>
+              <strong>Scanner une facture domaine (Facture IA) :</strong> glissez le PDF ou une photo
+              de la facture reçue du vigneron. L’IA lit chaque cuvée, les quantités, le prix HT et
+              extrait les frais de port pour les répartir automatiquement au prorata par bouteille.
+              Vous relisez le tableau avant de créer les lots de stock.
+            </li>
+            <li>
+              <strong>Scanner une facture de vente :</strong> si vous importez une facture client
+              externe, le même outil propose les lignes de vente prêtes à enregistrer.
+            </li>
+            <li>
+              <strong>Assistant Négoce IA (raccourci ⌘K) :</strong> posez une question en français
+              courant sur vos propres chiffres — <em>« Qui a des bouteilles prêtes en cave à
+              remettre ? »</em>, <em>« Quelles cuvées dois-je recommander au domaine ? »</em> ou
+              <em>« Simule telle cuvée à 39 € TTC »</em>. Il répond à partir de vos données réelles,
+              sans jamais rien modifier à votre place.
+            </li>
+          </ul>
+
+          <div class="divider-space"></div>
+          <p class="step-body">
+            <strong>Règle de sécurité :</strong> ni l’import HelloAsso, ni Facture IA, ni l’Assistant
+            n’écrivent quoi que ce soit automatiquement. Vous gardez toujours le dernier clic de
+            validation.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- Section 03: Les 10 onglets -->
+    <section id="modules" class="section">
+      <div class="section-header">
+        <div class="section-index">03. Tour complet de l’application</div>
+        <h2>Les 10 onglets, organisés autour de votre métier</h2>
+        <p class="section-intro">
+          Chaque onglet correspond à une responsabilité précise du négoce. Filtrez ci-dessous par moment
+          de travail pour voir en un coup d’œil ce que fait chaque espace.
+        </p>
+      </div>
+
+      <div class="filter-row no-print">
+        <div class="segmented" role="tablist" aria-label="Filtrer les onglets par catégorie">
+          <button type="button" class="filter-btn active" data-filter="all">Tous (10)</button>
+          <button type="button" class="filter-btn" data-filter="quotidien">Quotidien (4)</button>
+          <button type="button" class="filter-btn" data-filter="clients">Clients &amp; Vitrine (2)</button>
+          <button type="button" class="filter-btn" data-filter="gestion">Gestion &amp; Paramètres (4)</button>
+        </div>
+        <div class="filter-count" id="filterCount">10 onglets affichés</div>
+      </div>
+
+      <div class="modules-grid" id="modulesGrid">
+        <article class="module-card" data-group="quotidien">
+          <div class="module-meta">
+            <span class="tabular">01</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Quotidien</span>
+          </div>
+          <h3>Tableau de bord</h3>
+          <p class="module-desc">
+            Votre cockpit d’ouverture le matin : CA, marge nette, trésorerie à encaisser côté clients,
+            factures domaines restant à régler, alertes de déficit stock et planning complet de vos
+            campagnes d’allocations.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> savoir en 10 secondes ce qui urge aujourd’hui sans ouvrir 6 onglets Excel.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="quotidien">
+          <div class="module-meta">
+            <span class="tabular">02</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Quotidien</span>
+          </div>
+          <h3>Commandes</h3>
+          <p class="module-desc">
+            Centralise toutes vos ventes (HelloAsso, Club, WhatsApp, ventes directes multi-cuvées et
+            prélèvements cave perso). Gère le statut de livraison, les impayés, les remises partielles,
+            les n° de suivi colis et l’impression de Bons de livraison (BL) sans prix.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> suivi clair des encaissements et des expéditions, zéro oubli de remise.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="quotidien">
+          <div class="module-meta">
+            <span class="tabular">03</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Quotidien</span>
+          </div>
+          <h3>Stock &amp; Cave</h3>
+          <p class="module-desc">
+            Vue inventaire temps réel (Physique cave, En commande domaine, Réservé, Disponible libre),
+            suivi des lots fournisseurs avec réception 1 clic (qui bascule automatiquement les clients en
+            « Prêt LBG ») et journal des mouvements (casse, bouchonnée, dégustation, inventaire).
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> ne plus jamais sur-vendre une allocation ni perdre trace de votre stock d’avance.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="quotidien">
+          <div class="module-meta">
+            <span class="tabular">04</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Quotidien</span>
+          </div>
+          <h3>Domaines &amp; PO</h3>
+          <p class="module-desc">
+            Annuaire complet de vos 41 domaines (contact, email, IBAN, délai de paiement, franco de port,
+            notes d’allocations). Détecte automatiquement les cuvées en déficit et génère des Bons de
+            commande fournisseurs (PO-AAAA-XXXX) avec arrondi par carton ×6 ou ×12.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> passer une commande propre au vigneron en 30 secondes et créer les lots d’achat en même temps.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="clients">
+          <div class="module-meta">
+            <span class="tabular">05</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Clients &amp; Vitrine</span>
+          </div>
+          <h3>Clients &amp; CRM</h3>
+          <p class="module-desc">
+            Historique complet par acheteur (Particulier, Membre Club ou Professionnel B2B avec raison
+            sociale, SIRET et TVA), solde restant à encaisser, fusion des doublons, relance WhatsApp
+            pré-rédigée et fiche client imprimable (sans jamais divulguer vos marges).
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> relancer tous les clients ayant des bouteilles prêtes en cave en quelques clics.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="clients">
+          <div class="module-meta">
+            <span class="tabular">06</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Clients &amp; Vitrine</span>
+          </div>
+          <h3>Carte des vins</h3>
+          <p class="module-desc">
+            Vitrine propre de vos bouteilles disponibles à la vente, filtrable par région et couleur,
+            avec notes de dégustation publiques, affichage du millésime/appellation/format/bio et
+            bascule instantanée <strong>TTC (Particuliers) / HT (Pros)</strong>. Copie WhatsApp ou impression PDF.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> diffuser une offre claire et élégante sans jamais exposer vos prix d’achat ni notes internes.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="gestion">
+          <div class="module-meta">
+            <span class="tabular">07</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Gestion &amp; Paramètres</span>
+          </div>
+          <h3>Bilans financiers</h3>
+          <p class="module-desc">
+            Compte de résultat filtrable par période (Tout, Année, Trimestre, Mois) et par campagne.
+            Intègre vos charges réelles d’exploitation (stockage, transport, cartons, commissions,
+            dégustations) et sépare la cave perso et la casse de votre marge commerciale.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> connaître votre vrai résultat net et votre trésorerie réelle, pas seulement votre marge brute.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="gestion">
+          <div class="module-meta">
+            <span class="tabular">08</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Gestion &amp; Paramètres</span>
+          </div>
+          <h3>Facturation &amp; TVA</h3>
+          <p class="module-desc">
+            Émission de factures numérotées séquentiellement (FA-AAAA-XXXX) avec verrouillage fiscal,
+            émission d’avoirs en 1 clic (AV-AAAA-XXXX) libérant stock et TVA, bilan TVA mensuel net
+            (collectée − déductible) et export comptable CSV (journaux VE / AC).
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> des factures prêtes à envoyer aux particuliers comme aux pros et un fichier propre pour l’expert-comptable.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="gestion">
+          <div class="module-meta">
+            <span class="tabular">09</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Gestion &amp; Paramètres</span>
+          </div>
+          <h3>Catalogue &amp; Tarifs</h3>
+          <p class="module-desc">
+            Référentiel des 396 cuvées enrichi (millésime, appellation, format, certification bio/biodynamie,
+            apogée, benchmark marché). Calcule en direct le tarif conseillé selon votre formule LBG, la
+            marge nette par bouteille et l’écart au marché.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> ajuster un prix de vente en voyant immédiatement l’impact sur la marge, sans altérer l’historique.
+          </div>
+        </article>
+
+        <article class="module-card" data-group="gestion">
+          <div class="module-meta">
+            <span class="tabular">10</span>
+            <span aria-hidden="true">·</span>
+            <span class="mod-cat">Gestion &amp; Paramètres</span>
+          </div>
+          <h3>Paramètres</h3>
+          <p class="module-desc">
+            Vos mentions légales d’entreprise (raison sociale, SIRET, RCS, n° TVA, IBAN/BIC), vos taux
+            logistique/TVA, la gestion des accès équipe (Admin / Opérateur par email Google) et les
+            sauvegardes / restaurations complètes en JSON.
+          </p>
+          <div class="module-gain">
+            <span>Gain concret :</span> autonomie totale sur vos réglages, vos accès et la propriété de vos données.
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Section 04: Workflow type d'une campagne -->
+    <section class="section">
+      <div class="section-header">
+        <div class="section-index">04. Le cycle complet d’une allocation</div>
+        <h2>Comment une vente se déroule du début à la fin</h2>
+        <p class="section-intro">
+          Plus besoin de ressaisir la même information dans plusieurs onglets : chaque étape alimente la suivante.
+        </p>
+      </div>
+
+      <div class="workflow-grid">
+        <div class="wf-step">
+          <div class="wf-num">Étape 1</div>
+          <h3 class="wf-title">Préparer la vente</h3>
+          <p class="wf-text">
+            Ajoutez ou vérifiez vos cuvées dans <strong>Catalogue</strong> et créez la campagne dans le
+            <strong>Tableau de bord</strong> (dates d’ouverture, clôture et objectif bouteilles).
+          </p>
+        </div>
+        <div class="wf-step">
+          <div class="wf-num">Étape 2</div>
+          <h3 class="wf-title">Collecter les commandes</h3>
+          <p class="wf-text">
+            Importez l’export via <strong>Importer HelloAsso</strong> et saisissez vos ventes Club /
+            WhatsApp / Pros en commande directe multi-cuvées.
+          </p>
+        </div>
+        <div class="wf-step">
+          <div class="wf-num">Étape 3</div>
+          <h3 class="wf-title">Commander au domaine</h3>
+          <p class="wf-text">
+            Dans <strong>Domaines &amp; PO</strong>, l’application additionne les besoins : générez le
+            Bon de commande consolidé (×6 / ×12) et créez les lots d’achat en 1 clic.
+          </p>
+        </div>
+        <div class="wf-step">
+          <div class="wf-num">Étape 4</div>
+          <h3 class="wf-title">Réceptionner &amp; prévenir</h3>
+          <p class="wf-text">
+            À l’arrivée des cartons, cliquez sur <strong>Réceptionner</strong> dans Stock : les
+            clients passent automatiquement en « Prêt LBG » avec leur message WhatsApp prêt à envoyer.
+          </p>
+        </div>
+        <div class="wf-step">
+          <div class="wf-num">Étape 5</div>
+          <h3 class="wf-title">Livrer, facturer &amp; piloter</h3>
+          <p class="wf-text">
+            Imprimez le <strong>Bon de livraison</strong>, émettez la facture officielle
+            <strong>FA-AAAA-XXXX</strong>, et consultez votre marge nette réelle et votre TVA.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 05: Démarrage & Sécurité -->
+    <section id="demarrage" class="section">
+      <div class="section-header">
+        <div class="section-index">05. Mise en route en 3 minutes</div>
+        <h2>Comment démarrer sans risque</h2>
+        <p class="section-intro">
+          L’application est prête à être testée avec vos vraies données dès maintenant.
+        </p>
+      </div>
+
+      <div class="onboarding-grid">
+        <div class="surface-card">
+          <div class="card-kicker">Première connexion</div>
+          <h3>Les 3 étapes au lancement</h3>
+          <ol class="step-list">
+            <li class="step-item">
+              <div class="step-num">01</div>
+              <div>
+                <h4 class="step-title">Connexion Google sécurisée</h4>
+                <p class="step-body">
+                  Seules les adresses autorisées dans l’équipe peuvent accéder à votre cave. Aucune
+                  donnée n’est publique.
+                </p>
+              </div>
+            </li>
+            <li class="step-item">
+              <div class="step-num">02</div>
+              <div>
+                <h4 class="step-title">Chargement du référentiel Excel en 1 clic</h4>
+                <p class="step-body">
+                  Au premier démarrage, cliquez sur <strong>« Charger le référentiel Excel LBG »</strong>
+                  pour retrouver immédiatement vos 396 cuvées, 41 domaines et commandes historiques dans
+                  la base cloud.
+                </p>
+              </div>
+            </li>
+            <li class="step-item">
+              <div class="step-num">03</div>
+              <div>
+                <h4 class="step-title">Renseigner vos mentions légales</h4>
+                <p class="step-body">
+                  Dans <strong>Paramètres</strong>, complétez votre SIRET, n° TVA et IBAN : toutes vos
+                  factures et bons de commande porteront automatiquement vos coordonnées officielles.
+                </p>
+              </div>
+            </li>
+          </ol>
+        </div>
+
+        <div class="surface-card">
+          <div class="card-kicker">Propriété &amp; fiabilité</div>
+          <h3>Vos garanties au quotidien</h3>
+          <ul class="clean-bullets">
+            <li>
+              <strong>Synchronisation temps réel multi-appareils :</strong> consultez votre stock sur
+              téléphone en cave ou chez un client, et préparez vos factures sur ordinateur sans jamais
+              transférer de fichier.
+            </li>
+            <li>
+              <strong>Zéro enfermement :</strong> vous pouvez télécharger une sauvegarde complète JSON
+              de toute votre base à tout moment, ainsi que vos exports CSV Commandes et Comptabilité.
+            </li>
+            <li>
+              <strong>Confidentialité des marges :</strong> la Carte des vins, les Bons de livraison et
+              les Fiches clients imprimées n’affichent jamais vos prix d’achat ni vos marges.
+            </li>
+            <li>
+              <strong>Évolutif :</strong> vous pouvez inviter un associé, un collaborateur ou votre
+              comptable ultérieurement depuis l’onglet Paramètres.
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <div>Le Bon Grain d’Ivresse · Guide de présentation de l’application de négoce v2</div>
+      <div class="no-print">
+        <a href="/" style="color: var(--wine); font-weight: 600;">Accéder à l’application →</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      const buttons = document.querySelectorAll('.filter-btn');
+      const cards = document.querySelectorAll('.module-card');
+      const countEl = document.getElementById('filterCount');
+
+      buttons.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const filter = btn.getAttribute('data-filter');
+          buttons.forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+
+          let visible = 0;
+          cards.forEach((card) => {
+            const group = card.getAttribute('data-group');
+            const show = filter === 'all' || group === filter;
+            card.classList.toggle('hidden', !show);
+            if (show) visible++;
+          });
+
+          if (countEl) {
+            countEl.textContent = visible + ' onglet' + (visible > 1 ? 's' : '') + ' affiché' + (visible > 1 ? 's' : '');
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

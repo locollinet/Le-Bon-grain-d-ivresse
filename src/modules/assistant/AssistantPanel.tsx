@@ -55,13 +55,15 @@ const TONE_BADGE_CLASS: Record<MetricTone, string> = {
 
 const TAB_NAMES: Record<ActiveTab, string> = {
   dashboard: 'Tableau de bord',
-  stock: 'Stock & Achats',
+  stock: 'Stock & Cave',
+  domains: 'Domaines & Achats',
   orders: 'Commandes',
   finance: 'Bilans financiers',
   accounting: 'Facturation & TVA',
-  clients: 'Rapports clients',
+  clients: 'Clients & CRM',
   catalog: 'Catalogue & Tarifs',
   winelist: 'Carte des vins',
+  settings: 'Paramètres',
 };
 
 export const AssistantPanel: React.FC<AssistantPanelProps> = ({

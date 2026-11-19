@@ -1,276 +1,355 @@
 import React, { useState } from 'react';
-import { X } from 'lucide-react';
-import { LotStatus, LotType, SupplierLot, WineCatalogItem } from '../types/wine';
+import { X, PackagePlus } from 'lucide-react';
+import {
+  LotPaymentStatus,
+  LotStatus,
+  LotType,
+  SupplierLot,
+  WineCatalogItem,
+} from '../types/wine';
 import { formatEUR } from '../utils/wineMath';
-import type { SupplierLotPrefill } from '../modules/assistant/types';
 
 interface NewSupplierLotModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   catalog: WineCatalogItem[];
-  preselectedCatalogId?: string;
-  prefill?: SupplierLotPrefill | null;
-  onAddLot: (lot: SupplierLot) => void;
+  initialLot?: SupplierLot | null;
+  onClose: () => void;
+  onSaveLot: (lot: SupplierLot) => Promise<void> | void;
 }
 
 export const NewSupplierLotModal: React.FC<NewSupplierLotModalProps> = ({
-  isOpen,
-  onClose,
   catalog,
-  preselectedCatalogId,
-  prefill,
-  onAddLot,
+  initialLot,
+  onClose,
+  onSaveLot,
 }) => {
+  const defaultWine =
+    catalog.find((c) => c.id === initialLot?.catalogId) ?? catalog[0];
+
   const [catalogId, setCatalogId] = useState(
-    preselectedCatalogId || catalog[0]?.id || ''
+    initialLot?.catalogId ?? defaultWine?.id ?? ''
   );
-  const [typeAchat, setTypeAchat] = useState<LotType>('avance');
-  const [qteCommandee, setQteCommandee] = useState(6);
-  const [statutLot, setStatutLot] = useState<LotStatus>('recu_cave');
-  const [coutUnitaireHT, setCoutUnitaireHT] = useState<string>('');
   const [dateAchat, setDateAchat] = useState(
-    new Date().toISOString().slice(0, 10)
+    initialLot?.dateAchat ?? new Date().toISOString().slice(0, 10)
   );
-  const [referenceFacture, setReferenceFacture] = useState('');
-  const [notes, setNotes] = useState('');
+  const [typeAchat, setTypeAchat] = useState<LotType>(
+    initialLot?.typeAchat ?? 'avance'
+  );
+  const [statutLot, setStatutLot] = useState<LotStatus>(
+    initialLot?.statutLot ?? 'commande_payee'
+  );
+  const [qteCommandee, setQteCommandee] = useState(
+    initialLot?.qteCommandee ?? 6
+  );
+  const [qteRecue, setQteRecue] = useState(initialLot?.qteRecue ?? 0);
+  const [coutUnitaireHT, setCoutUnitaireHT] = useState(
+    initialLot?.coutUnitaireHT ?? defaultWine?.tarifAchatHT ?? 0
+  );
+  const [shippingHT, setShippingHT] = useState(initialLot?.shippingHT ?? 0);
+  const [tvaRatePct, setTvaRatePct] = useState(initialLot?.tvaRatePct ?? 20);
+  const [referenceFacture, setReferenceFacture] = useState(
+    initialLot?.referenceFacture ?? ''
+  );
+  const [paymentStatus, setPaymentStatus] = useState<LotPaymentStatus>(
+    initialLot?.paymentStatus ?? 'non_paye'
+  );
+  const [paymentDueDate, setPaymentDueDate] = useState(
+    initialLot?.paymentDueDate ?? ''
+  );
+  const [notes, setNotes] = useState(initialLot?.notes ?? '');
+  const [saving, setSaving] = useState(false);
 
-  React.useEffect(() => {
-    if (!isOpen) return;
-    setCatalogId(
-      prefill?.catalogId || preselectedCatalogId || catalog[0]?.id || ''
-    );
-    setTypeAchat(prefill?.typeAchat ?? 'avance');
-    setQteCommandee(
-      prefill?.qteCommandee ? Math.max(1, prefill.qteCommandee) : 6
-    );
-    setStatutLot(prefill?.statutLot ?? 'recu_cave');
-    setCoutUnitaireHT(
-      prefill?.coutUnitaireHT !== undefined
-        ? String(prefill.coutUnitaireHT)
-        : ''
-    );
-    setDateAchat(new Date().toISOString().slice(0, 10));
-    setReferenceFacture(prefill?.referenceFacture ?? '');
-    setNotes(prefill?.notes ?? '');
-  }, [isOpen, preselectedCatalogId, prefill, catalog]);
+  const handleWineChange = (id: string) => {
+    setCatalogId(id);
+    const wine = catalog.find((c) => c.id === id);
+    if (wine && !initialLot) {
+      setCoutUnitaireHT(wine.tarifAchatHT);
+    }
+  };
 
-  if (!isOpen) return null;
+  const handleStatusChange = (next: LotStatus) => {
+    setStatutLot(next);
+    if (next === 'recu_cave' && qteRecue === 0) {
+      setQteRecue(qteCommandee);
+    }
+  };
 
-  const selectedItem = catalog.find((c) => c.id === catalogId) ?? catalog[0];
-  const effectiveCost =
-    coutUnitaireHT !== ''
-      ? Number(coutUnitaireHT)
-      : selectedItem?.tarifAchatHT ?? 0;
+  const totalHT = qteCommandee * coutUnitaireHT + shippingHT;
+  const totalTTC = totalHT * (1 + tvaRatePct / 100);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedItem || qteCommandee <= 0) return;
-
-    const newLot: SupplierLot = {
-      id: `lot_${Date.now()}`,
-      catalogId: selectedItem.id,
-      dateAchat,
-      typeAchat,
-      qteCommandee,
-      qteRecue: statutLot === 'recu_cave' ? qteCommandee : 0,
-      coutUnitaireHT: effectiveCost,
-      statutLot,
-      referenceFacture:
-        referenceFacture.trim() || `FAC-${Date.now().toString().slice(-5)}`,
-      notes: notes.trim() || undefined,
-    };
-
-    onAddLot(newLot);
-    setReferenceFacture('');
-    setNotes('');
-    setCoutUnitaireHT('');
-    onClose();
+    if (!catalogId) return;
+    setSaving(true);
+    try {
+      const lot: SupplierLot = {
+        id: initialLot?.id ?? `lot_${Date.now()}`,
+        catalogId,
+        domaineId: initialLot?.domaineId,
+        purchaseOrderId: initialLot?.purchaseOrderId,
+        dateAchat,
+        typeAchat,
+        qteCommandee: Math.max(1, Math.round(qteCommandee)),
+        qteRecue:
+          statutLot === 'recu_cave'
+            ? Math.max(qteRecue, qteCommandee)
+            : Math.min(Math.max(0, Math.round(qteRecue)), qteCommandee),
+        coutUnitaireHT: Math.max(0, coutUnitaireHT),
+        tvaRatePct,
+        shippingHT: shippingHT > 0 ? shippingHT : undefined,
+        statutLot,
+        referenceFacture: referenceFacture.trim() || `LOT-${dateAchat}`,
+        paymentStatus,
+        paymentDueDate: paymentDueDate || undefined,
+        paidAt:
+          paymentStatus === 'paye'
+            ? initialLot?.paidAt ?? new Date().toISOString().slice(0, 10)
+            : undefined,
+        origin: initialLot?.origin ?? 'manual',
+        notes: notes.trim() || undefined,
+      };
+      await onSaveLot(lot);
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="lot-modal-title"
-    >
-      <div className="w-full max-w-xl bg-white border border-[#E5E4DF] rounded-xl shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E4DF]">
-          <div>
-            <h2
-              id="lot-modal-title"
-              className="text-xl font-semibold text-[#141413]"
-            >
-              Enregistrer un achat fournisseur / stock en avance
+    <div className="fixed inset-0 bg-black/45 z-50 flex items-center justify-center p-4">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white border border-[#E5E4DF] rounded-xl w-full max-w-xl max-h-[92vh] overflow-y-auto p-6 space-y-4 text-sm"
+      >
+        <div className="flex items-center justify-between pb-3 border-b border-[#E5E4DF]">
+          <div className="flex items-center gap-2">
+            <PackagePlus className="w-5 h-5 text-[#721C24]" />
+            <h2 className="font-serif text-xl font-semibold">
+              {initialLot ? 'Modifier le lot fournisseur' : 'Nouveau lot fournisseur'}
             </h2>
-            <p className="text-sm text-[#6B6B66] mt-0.5">
-              Suivez le vin payé d’avance avant mise en vente ou les réassorts
-              domaines.
-            </p>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 text-[#6B6B66] hover:text-[#141413] hover:bg-[#F6F6F4] rounded-lg"
-            aria-label="Fermer"
+            className="p-1 text-[#6B6A65] hover:text-[#18181B] cursor-pointer"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <div>
+          <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+            Cuvée du catalogue *
+          </label>
+          <select
+            value={catalogId}
+            onChange={(e) => handleWineChange(e.target.value)}
+            className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+          >
+            {catalog.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.domaine} — {c.cuvee} ({formatEUR(c.tarifAchatHT)} HT)
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-              Cuvée concernée
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Date d’achat
+            </label>
+            <input
+              type="date"
+              value={dateAchat}
+              onChange={(e) => setDateAchat(e.target.value)}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Type d’achat
             </label>
             <select
-              value={catalogId}
-              onChange={(e) => {
-                setCatalogId(e.target.value);
-                setCoutUnitaireHT('');
-              }}
-              className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
+              value={typeAchat}
+              onChange={(e) => setTypeAchat(e.target.value as LotType)}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
             >
-              {catalog.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.domaine} — {c.cuvee} (Achat réf. {formatEUR(c.tarifAchatHT)}{' '}
-                  HT)
-                </option>
-              ))}
+              <option value="allocation">Allocation (sur vente)</option>
+              <option value="avance">Achat en avance (tampon)</option>
+              <option value="cave">Stock cave permanent</option>
             </select>
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Nature de l’achat
-              </label>
-              <select
-                value={typeAchat}
-                onChange={(e) => setTypeAchat(e.target.value as LotType)}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              >
-                <option value="avance">
-                  Achat en avance (avant mise en vente)
-                </option>
-                <option value="allocation">
-                  Allocation (couvre une vente HelloAsso)
-                </option>
-                <option value="cave">Stock cave existant</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                État de réception
-              </label>
-              <select
-                value={statutLot}
-                onChange={(e) => setStatutLot(e.target.value as LotStatus)}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              >
-                <option value="recu_cave">Reçu en cave LBG</option>
-                <option value="en_transit">En transit / Chez transporteur</option>
-                <option value="commande_payee">
-                  Commandé &amp; payé (en attente domaine)
-                </option>
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Statut logistique
+            </label>
+            <select
+              value={statutLot}
+              onChange={(e) => handleStatusChange(e.target.value as LotStatus)}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+            >
+              <option value="commande_payee">Commandé domaine</option>
+              <option value="en_transit">En transit</option>
+              <option value="recu_cave">Reçu en cave</option>
+            </select>
           </div>
+        </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Quantité (bouteilles)
-              </label>
-              <input
-                type="number"
-                min={1}
-                value={qteCommandee}
-                onChange={(e) => setQteCommandee(Number(e.target.value))}
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Coût unitaire HT (€)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                min={0}
-                value={
-                  coutUnitaireHT !== ''
-                    ? coutUnitaireHT
-                    : String(selectedItem?.tarifAchatHT ?? 0)
-                }
-                onChange={(e) => setCoutUnitaireHT(e.target.value)}
-                className="w-full px-3 py-2 text-sm font-mono-num bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Date d’achat
-              </label>
-              <input
-                type="date"
-                value={dateAchat}
-                onChange={(e) => setDateAchat(e.target.value)}
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Qté commandée
+            </label>
+            <input
+              type="number"
+              min="1"
+              value={qteCommandee}
+              onChange={(e) =>
+                setQteCommandee(Math.max(1, Math.round(Number(e.target.value) || 1)))
+              }
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+            />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Qté reçue
+            </label>
+            <input
+              type="number"
+              min="0"
+              max={qteCommandee}
+              value={qteRecue}
+              onChange={(e) =>
+                setQteRecue(Math.max(0, Math.round(Number(e.target.value) || 0)))
+              }
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Coût unit. HT (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={coutUnitaireHT}
+              onChange={(e) =>
+                setCoutUnitaireHT(Math.max(0, Number(e.target.value) || 0))
+              }
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Port facturé HT (€)
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.5"
+              value={shippingHT}
+              onChange={(e) =>
+                setShippingHT(Math.max(0, Number(e.target.value) || 0))
+              }
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+            />
+          </div>
+        </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                N° Facture / Référence domaine
-              </label>
-              <input
-                type="text"
-                value={referenceFacture}
-                onChange={(e) => setReferenceFacture(e.target.value)}
-                placeholder="Ex : FAC-TIS-2026-112"
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-[#6B6B66] mb-1">
-                Notes
-              </label>
-              <input
-                type="text"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="Ex : Caisse bois 6 btl"
-                className="w-full px-3 py-2 text-sm bg-white border border-[#D8D6D0] rounded-lg focus:outline-none focus:border-[#721C24]"
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Réf. facture / BC
+            </label>
+            <input
+              value={referenceFacture}
+              onChange={(e) => setReferenceFacture(e.target.value)}
+              placeholder="FA-DOM-2026-01"
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono text-xs"
+            />
           </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Règlement domaine
+            </label>
+            <select
+              value={paymentStatus}
+              onChange={(e) => setPaymentStatus(e.target.value as LotPaymentStatus)}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg bg-white"
+            >
+              <option value="non_paye">À payer</option>
+              <option value="paye">Réglé</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Échéance paiement
+            </label>
+            <input
+              type="date"
+              value={paymentDueDate}
+              onChange={(e) => setPaymentDueDate(e.target.value)}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+            />
+          </div>
+        </div>
 
-          <div className="flex items-center justify-between pt-3 border-t border-[#E5E4DF]">
-            <div className="text-sm text-[#6B6B66]">
-              Engagement HT :{' '}
-              <span className="font-semibold text-[#141413] font-mono-num">
-                {formatEUR(effectiveCost * qteCommandee)}
-              </span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 text-sm font-medium text-[#6B6B66] hover:text-[#141413]"
-              >
-                Annuler
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 text-sm font-medium text-white bg-[#721C24] hover:bg-[#5B151C] rounded-lg transition-colors"
-              >
-                Ajouter au stock
-              </button>
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              TVA achat (%)
+            </label>
+            <input
+              type="number"
+              min="0"
+              max="30"
+              step="0.5"
+              value={tvaRatePct}
+              onChange={(e) => setTvaRatePct(Math.max(0, Number(e.target.value) || 0))}
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg font-mono"
+            />
           </div>
-        </form>
-      </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-[#6B6A65] mb-1">
+              Notes
+            </label>
+            <input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Transporteur, numéro de palette…"
+              className="w-full px-3 py-2 border border-[#E5E4DF] rounded-lg"
+            />
+          </div>
+        </div>
+
+        <div className="p-3 rounded-lg bg-[#FAF9F6] border border-[#E5E4DF] flex items-center justify-between text-xs">
+          <span className="text-[#6B6A65]">
+            Total lot (port inclus) :{' '}
+            <strong className="font-mono text-[#18181B]">{formatEUR(totalHT)} HT</strong>
+          </span>
+          <span className="font-mono font-semibold text-[#721C24]">
+            {formatEUR(totalTTC)} TTC
+          </span>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-[#E5E4DF]">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-lg border border-[#E5E4DF] text-sm cursor-pointer"
+          >
+            Annuler
+          </button>
+          <button
+            type="submit"
+            disabled={saving}
+            className="px-4 py-2 rounded-lg bg-[#721C24] hover:bg-[#5E161D] disabled:opacity-50 text-white text-sm font-medium cursor-pointer"
+          >
+            {saving ? 'Enregistrement…' : initialLot ? 'Mettre à jour' : 'Ajouter le lot'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 };

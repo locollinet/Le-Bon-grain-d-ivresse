@@ -158,12 +158,19 @@ export function getContextualSuggestions(activeTab: ActiveTab): string[] {
         'Quelles commandes n’ont pas encore de facture ?',
         'Résume la TVA déductible de mes achats',
       ];
+    case 'domains':
+      return [
+        'Quelles cuvées dois-je recommander au domaine ?',
+        'Quel est mon stock acheté en avance disponible ?',
+        'Quels lots fournisseurs sont encore en attente de réception ?',
+      ];
     case 'winelist':
       return [
         'Quelles cuvées en stock libre sont encore masquées de la vitrine ?',
         'Quelles références sont à plus de 15 % sous le marché ?',
         'Combien j’ai de bouteilles Pattes-Loup et Pataille libres ?',
       ];
+    case 'settings':
     case 'dashboard':
     default:
       return [

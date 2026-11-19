@@ -21,6 +21,24 @@ export const DEFAULT_SETTINGS: AppSettings = {
     'Bouteilles disponibles immédiatement en cave ou sur allocation domaine.',
   showcaseShowStock: true,
   showcaseShowBenchmark: true,
+  showcaseDisplayMode: 'ttc',
+  companyName: "Le Bon Grain d'Ivresse",
+  companyLegalForm: 'SAS',
+  companyCapital: '10 000 €',
+  companyAddress: 'À renseigner dans Paramètres',
+  companySiret: '',
+  companyRcs: '',
+  companyVatNumber: '',
+  companyIban: '',
+  companyBic: '',
+  companyEmail: 'lebongraindivresse@gmail.com',
+  companyPhone: '',
+  companyWebsite: 'www.lebongraindivresse.com',
+  companyLegalLine:
+    "L'abus d'alcool est dangereux pour la santé, à consommer avec modération. Vente interdite aux mineurs de moins de 18 ans. Indemnité forfaitaire de recouvrement (pros) : 40 €.",
+  nextInvoiceSeq: 1,
+  nextCreditNoteSeq: 1,
+  nextPoSeq: 1,
 };
 
 /**

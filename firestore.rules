@@ -1,0 +1,701 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Hardened Global Primitives ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function userEmailLower() {
+      return request.auth.token.email.lower();
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidEmailKey(key) {
+      return key is string && key.size() >= 3 && key.size() <= 200;
+    }
+
+    function isOptStr(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+
+    function isOptNum(data, key) {
+      return !(key in data) || (data[key] is number);
+    }
+
+    function isOptBool(data, key) {
+      return !(key in data) || (data[key] is bool);
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerified() && userEmailLower() == 'locollinet@gmail.com';
+    }
+
+    function isWorkspaceMember(wsId) {
+      return isVerified() && (
+        isBootstrappedAdmin() ||
+        exists(/databases/$(database)/documents/workspaces/$(wsId)/members/$(request.auth.uid))
+      );
+    }
+
+    function isWorkspaceAdmin(wsId) {
+      return isVerified() && (
+        isBootstrappedAdmin() ||
+        (
+          exists(/databases/$(database)/documents/workspaces/$(wsId)/members/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/workspaces/$(wsId)/members/$(request.auth.uid)).data.role == 'admin'
+        )
+      );
+    }
+
+    // --- Entity Validation Blueprints ---
+
+    function isValidWorkspace(data) {
+      return data.keys().hasAll(['name', 'ownerUid', 'ownerEmail', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['name', 'ownerUid', 'ownerEmail', 'createdAt', 'updatedAt'])
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.ownerUid is string && data.ownerUid.size() <= 128
+        && data.ownerEmail is string && data.ownerEmail.size() <= 200
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidMember(data, wsId, memberId) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'role', 'workspaceId', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'displayName', 'role', 'workspaceId', 'createdAt', 'updatedAt'])
+        && data.uid == memberId
+        && data.workspaceId == wsId
+        && data.email is string && data.email.size() <= 200
+        && data.displayName is string && data.displayName.size() <= 120
+        && (data.role == 'admin' || data.role == 'operator')
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidInvite(data, wsId) {
+      return data.keys().hasAll(['email', 'role', 'invitedByUid', 'workspaceId', 'createdAt'])
+        && data.keys().hasOnly(['email', 'role', 'invitedByUid', 'workspaceId', 'createdAt'])
+        && data.workspaceId == wsId
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && (data.role == 'admin' || data.role == 'operator')
+        && data.invitedByUid is string && data.invitedByUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidSettings(data, wsId) {
+      return data.keys().hasAll([
+          'workspaceId', 'tvaRate', 'fraisLogistiqueAmont', 'fraisLogistiqueAval',
+          'fraisLogistiqueParBouteille', 'tauxMarqueCibleExw', 'anonymizeClients', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'workspaceId', 'tvaRate', 'fraisLogistiqueAmont', 'fraisLogistiqueAval',
+          'fraisLogistiqueParBouteille', 'tauxMarqueCibleExw', 'anonymizeClients',
+          'showcaseTitle', 'showcaseSubtitle', 'showcaseShowStock', 'showcaseShowBenchmark',
+          'showcaseDisplayMode', 'companyName', 'companyLegalForm', 'companyCapital',
+          'companyAddress', 'companySiret', 'companyRcs', 'companyVatNumber',
+          'companyIban', 'companyBic', 'companyEmail', 'companyPhone', 'companyWebsite',
+          'companyLegalLine', 'nextInvoiceSeq', 'nextCreditNoteSeq', 'nextPoSeq', 'updatedAt'
+        ])
+        && data.workspaceId == wsId
+        && data.tvaRate is number && data.tvaRate >= 0 && data.tvaRate <= 1
+        && data.fraisLogistiqueAmont is number && data.fraisLogistiqueAmont >= 0
+        && data.fraisLogistiqueAval is number && data.fraisLogistiqueAval >= 0
+        && data.fraisLogistiqueParBouteille is number && data.fraisLogistiqueParBouteille >= 0
+        && data.tauxMarqueCibleExw is number && data.tauxMarqueCibleExw >= 0 && data.tauxMarqueCibleExw < 1
+        && data.anonymizeClients is bool
+        && isOptStr(data, 'showcaseTitle', 160)
+        && isOptStr(data, 'showcaseSubtitle', 300)
+        && isOptBool(data, 'showcaseShowStock')
+        && isOptBool(data, 'showcaseShowBenchmark')
+        && (!('showcaseDisplayMode' in data) || data.showcaseDisplayMode == 'ttc' || data.showcaseDisplayMode == 'ht')
+        && isOptStr(data, 'companyName', 160)
+        && isOptStr(data, 'companyLegalForm', 120)
+        && isOptStr(data, 'companyCapital', 80)
+        && isOptStr(data, 'companyAddress', 300)
+        && isOptStr(data, 'companySiret', 60)
+        && isOptStr(data, 'companyRcs', 120)
+        && isOptStr(data, 'companyVatNumber', 60)
+        && isOptStr(data, 'companyIban', 80)
+        && isOptStr(data, 'companyBic', 40)
+        && isOptStr(data, 'companyEmail', 160)
+        && isOptStr(data, 'companyPhone', 60)
+        && isOptStr(data, 'companyWebsite', 160)
+        && isOptStr(data, 'companyLegalLine', 500)
+        && isOptNum(data, 'nextInvoiceSeq')
+        && isOptNum(data, 'nextCreditNoteSeq')
+        && isOptNum(data, 'nextPoSeq')
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidDomain(data, wsId, docId) {
+      return data.keys().hasAll(['id', 'workspaceId', 'nom', 'region', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'nom', 'region', 'contactName', 'email', 'phone',
+          'address', 'iban', 'francoPortHT', 'delaiPaiement', 'notesAllocation', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.nom is string && data.nom.size() >= 1 && data.nom.size() <= 160
+        && data.region is string && data.region.size() <= 120
+        && isOptStr(data, 'contactName', 120)
+        && isOptStr(data, 'email', 200)
+        && isOptStr(data, 'phone', 60)
+        && isOptStr(data, 'address', 300)
+        && isOptStr(data, 'iban', 80)
+        && isOptNum(data, 'francoPortHT')
+        && isOptStr(data, 'delaiPaiement', 120)
+        && isOptStr(data, 'notesAllocation', 1000)
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidCatalog(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'vente', 'domaine', 'cuvee', 'reference', 'region',
+          'color', 'tarifAchatHT', 'prixLbgTTC', 'benchSource', 'dispoPublic', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'vente', 'dateVente', 'canal', 'domaine', 'domaineId',
+          'fournisseur', 'cuvee', 'millesime', 'appellation', 'format', 'certification',
+          'apogee', 'reference', 'region', 'color', 'tarifAchatHT', 'prixLbgTTC',
+          'benchTTC', 'benchSource', 'fraisLogistiqueOverride', 'dispoPublic',
+          'tastingNotes', 'notes', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.vente is string && data.vente.size() <= 160
+        && isOptStr(data, 'dateVente', 40)
+        && isOptStr(data, 'canal', 30)
+        && data.domaine is string && data.domaine.size() >= 1 && data.domaine.size() <= 160
+        && isOptStr(data, 'domaineId', 128)
+        && isOptStr(data, 'fournisseur', 160)
+        && data.cuvee is string && data.cuvee.size() >= 1 && data.cuvee.size() <= 200
+        && isOptStr(data, 'millesime', 20)
+        && isOptStr(data, 'appellation', 160)
+        && isOptStr(data, 'format', 40)
+        && isOptStr(data, 'certification', 40)
+        && isOptStr(data, 'apogee', 60)
+        && data.reference is string && data.reference.size() <= 260
+        && data.region is string && data.region.size() <= 120
+        && data.color is string && data.color.size() <= 40
+        && data.tarifAchatHT is number && data.tarifAchatHT >= 0
+        && data.prixLbgTTC is number && data.prixLbgTTC >= 0
+        && (!('benchTTC' in data) || data.benchTTC == null || data.benchTTC is number)
+        && data.benchSource is string && data.benchSource.size() <= 120
+        && (!('fraisLogistiqueOverride' in data) || data.fraisLogistiqueOverride == null || data.fraisLogistiqueOverride is number)
+        && data.dispoPublic is bool
+        && isOptStr(data, 'tastingNotes', 600)
+        && isOptStr(data, 'notes', 600)
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidLot(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'catalogId', 'dateAchat', 'typeAchat',
+          'qteCommandee', 'qteRecue', 'coutUnitaireHT', 'statutLot', 'referenceFacture', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'catalogId', 'domaineId', 'purchaseOrderId', 'dateAchat',
+          'typeAchat', 'qteCommandee', 'qteRecue', 'coutUnitaireHT', 'tvaRatePct',
+          'shippingHT', 'statutLot', 'referenceFacture', 'paymentStatus',
+          'paymentDueDate', 'paidAt', 'origin', 'notes', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.catalogId is string && data.catalogId.size() <= 128
+        && isOptStr(data, 'domaineId', 128)
+        && isOptStr(data, 'purchaseOrderId', 128)
+        && data.dateAchat is string && data.dateAchat.size() <= 40
+        && (data.typeAchat == 'avance' || data.typeAchat == 'allocation' || data.typeAchat == 'cave')
+        && data.qteCommandee is number && data.qteCommandee >= 0
+        && data.qteRecue is number && data.qteRecue >= 0
+        && data.coutUnitaireHT is number && data.coutUnitaireHT >= 0
+        && isOptNum(data, 'tvaRatePct')
+        && isOptNum(data, 'shippingHT')
+        && (data.statutLot == 'commande_payee' || data.statutLot == 'en_transit' || data.statutLot == 'recu_cave')
+        && data.referenceFacture is string && data.referenceFacture.size() <= 120
+        && isOptStr(data, 'paymentStatus', 30)
+        && isOptStr(data, 'paymentDueDate', 40)
+        && isOptStr(data, 'paidAt', 40)
+        && isOptStr(data, 'origin', 40)
+        && isOptStr(data, 'notes', 600)
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidStockAdjustment(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'catalogId', 'date', 'reason', 'qtyDelta', 'unitCostHT', 'createdByUid', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'catalogId', 'date', 'reason', 'qtyDelta', 'unitCostHT', 'notes', 'createdByUid', 'createdAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.catalogId is string && data.catalogId.size() <= 128
+        && data.date is string && data.date.size() <= 40
+        && (data.reason == 'casse' || data.reason == 'bouchonnee' || data.reason == 'degustation' || data.reason == 'retour_client' || data.reason == 'inventaire')
+        && data.qtyDelta is number
+        && data.unitCostHT is number && data.unitCostHT >= 0
+        && isOptStr(data, 'notes', 400)
+        && data.createdByUid is string && data.createdByUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidCustomer(data, wsId, docId) {
+      return data.keys().hasAll(['id', 'workspaceId', 'customerType', 'nom', 'prenom', 'email', 'updatedAt'])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'customerType', 'nom', 'prenom', 'companyName', 'siret',
+          'vatNumber', 'email', 'phone', 'billingAddress', 'shippingAddress',
+          'notes', 'mergedEmails', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && (data.customerType == 'particulier' || data.customerType == 'club' || data.customerType == 'pro')
+        && data.nom is string && data.nom.size() <= 120
+        && data.prenom is string && data.prenom.size() <= 120
+        && isOptStr(data, 'companyName', 160)
+        && isOptStr(data, 'siret', 40)
+        && isOptStr(data, 'vatNumber', 40)
+        && data.email is string && data.email.size() <= 200
+        && isOptStr(data, 'phone', 60)
+        && isOptStr(data, 'billingAddress', 300)
+        && isOptStr(data, 'shippingAddress', 300)
+        && isOptStr(data, 'notes', 800)
+        && (!('mergedEmails' in data) || (data.mergedEmails is list && data.mergedEmails.size() <= 20 && (data.mergedEmails.size() == 0 || data.mergedEmails[0] is string)))
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidOrder(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'date', 'refCommande', 'vente', 'nomClient', 'prenomClient',
+          'emailClient', 'catalogId', 'produitLabel', 'prixUnitaireTTC', 'qte', 'statut', 'source', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'date', 'refCommande', 'invoiceId', 'invoiceNumber',
+          'creditNoteId', 'creditNoteNumber', 'vente', 'customerId', 'nomClient',
+          'prenomClient', 'emailClient', 'catalogId', 'produitLabel', 'prixUnitaireTTC',
+          'coutAchatUnitaireHT', 'coutLogistiqueUnitaireHT', 'tvaRatePct', 'qte',
+          'qteRemise', 'statut', 'source', 'paymentStatus', 'paymentMethod',
+          'amountPaidTTC', 'paidAt', 'deliveryMode', 'shippingFeeClientTTC', 'carrier',
+          'trackingNumber', 'deliveryAddress', 'codePromo', 'discountTTC', 'notes',
+          'locked', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.date is string && data.date.size() <= 40
+        && data.refCommande is string && data.refCommande.size() >= 1 && data.refCommande.size() <= 120
+        && isOptStr(data, 'invoiceId', 128)
+        && isOptStr(data, 'invoiceNumber', 80)
+        && isOptStr(data, 'creditNoteId', 128)
+        && isOptStr(data, 'creditNoteNumber', 80)
+        && data.vente is string && data.vente.size() <= 160
+        && isOptStr(data, 'customerId', 128)
+        && data.nomClient is string && data.nomClient.size() <= 120
+        && data.prenomClient is string && data.prenomClient.size() <= 120
+        && data.emailClient is string && data.emailClient.size() <= 200
+        && data.catalogId is string && data.catalogId.size() <= 128
+        && data.produitLabel is string && data.produitLabel.size() <= 220
+        && data.prixUnitaireTTC is number && data.prixUnitaireTTC >= 0
+        && isOptNum(data, 'coutAchatUnitaireHT')
+        && isOptNum(data, 'coutLogistiqueUnitaireHT')
+        && isOptNum(data, 'tvaRatePct')
+        && data.qte is number && data.qte >= 1
+        && isOptNum(data, 'qteRemise')
+        && (data.statut == 'attente_reception' || data.statut == 'recu_lbg' || data.statut == 'remis_client' || data.statut == 'annule')
+        && (data.source == 'helloasso' || data.source == 'direct' || data.source == 'perso' || data.source == 'facture_ia')
+        && isOptStr(data, 'paymentStatus', 30)
+        && isOptStr(data, 'paymentMethod', 30)
+        && isOptNum(data, 'amountPaidTTC')
+        && isOptStr(data, 'paidAt', 40)
+        && isOptStr(data, 'deliveryMode', 30)
+        && isOptNum(data, 'shippingFeeClientTTC')
+        && isOptStr(data, 'carrier', 80)
+        && isOptStr(data, 'trackingNumber', 120)
+        && isOptStr(data, 'deliveryAddress', 300)
+        && isOptStr(data, 'codePromo', 80)
+        && isOptNum(data, 'discountTTC')
+        && isOptStr(data, 'notes', 600)
+        && isOptBool(data, 'locked')
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidFiscalDocument(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'docType', 'invoiceNumber', 'refCommande', 'date', 'vente',
+          'customerSnapshot', 'companySnapshot', 'lines', 'totalHT', 'totalTVA', 'totalTTC',
+          'createdByUid', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'docType', 'invoiceNumber', 'relatedInvoiceId',
+          'relatedInvoiceNumber', 'refCommande', 'date', 'dueDate', 'vente', 'customerId',
+          'customerSnapshot', 'companySnapshot', 'lines', 'shippingTTC', 'totalHT',
+          'totalTVA', 'totalTTC', 'paymentStatus', 'paymentMethod', 'paidAt',
+          'creditNoteId', 'creditNoteNumber', 'notes', 'createdByUid', 'createdAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && (data.docType == 'facture' || data.docType == 'avoir')
+        && data.invoiceNumber is string && data.invoiceNumber.size() >= 1 && data.invoiceNumber.size() <= 80
+        && isOptStr(data, 'relatedInvoiceId', 128)
+        && isOptStr(data, 'relatedInvoiceNumber', 80)
+        && data.refCommande is string && data.refCommande.size() <= 120
+        && data.date is string && data.date.size() <= 40
+        && isOptStr(data, 'dueDate', 40)
+        && data.vente is string && data.vente.size() <= 160
+        && isOptStr(data, 'customerId', 128)
+        && data.customerSnapshot is map
+        && data.companySnapshot is map
+        && data.lines is list && data.lines.size() >= 1 && data.lines.size() <= 100 && data.lines[0] is map
+        && isOptNum(data, 'shippingTTC')
+        && data.totalHT is number
+        && data.totalTVA is number
+        && data.totalTTC is number
+        && isOptStr(data, 'paymentStatus', 30)
+        && isOptStr(data, 'paymentMethod', 30)
+        && isOptStr(data, 'paidAt', 40)
+        && isOptStr(data, 'creditNoteId', 128)
+        && isOptStr(data, 'creditNoteNumber', 80)
+        && isOptStr(data, 'notes', 600)
+        && data.createdByUid is string && data.createdByUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 40;
+    }
+
+    function isValidPurchaseOrder(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'poNumber', 'domaineName', 'date', 'statut',
+          'lines', 'totalBottles', 'totalHT', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'poNumber', 'domaineId', 'domaineName', 'date',
+          'expectedDeliveryDate', 'statut', 'lines', 'totalBottles', 'totalHT',
+          'notes', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.poNumber is string && data.poNumber.size() <= 80
+        && isOptStr(data, 'domaineId', 128)
+        && data.domaineName is string && data.domaineName.size() <= 160
+        && data.date is string && data.date.size() <= 40
+        && isOptStr(data, 'expectedDeliveryDate', 40)
+        && (data.statut == 'brouillon' || data.statut == 'envoye' || data.statut == 'recu')
+        && data.lines is list && data.lines.size() >= 1 && data.lines.size() <= 100 && data.lines[0] is map
+        && data.totalBottles is number && data.totalBottles >= 1
+        && data.totalHT is number && data.totalHT >= 0
+        && isOptStr(data, 'notes', 600)
+        && data.createdByUid is string && data.createdByUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidCampaign(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'nom', 'domaine', 'dateOuverture', 'canal', 'statut', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'nom', 'domaine', 'domaineId', 'dateOuverture',
+          'dateCloture', 'dateLivraisonEstimee', 'canal', 'contact', 'targetBottles',
+          'statut', 'notes', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.nom is string && data.nom.size() >= 1 && data.nom.size() <= 160
+        && data.domaine is string && data.domaine.size() <= 160
+        && isOptStr(data, 'domaineId', 128)
+        && data.dateOuverture is string && data.dateOuverture.size() <= 40
+        && isOptStr(data, 'dateCloture', 40)
+        && isOptStr(data, 'dateLivraisonEstimee', 40)
+        && (data.canal == 'HelloAsso' || data.canal == 'Club' || data.canal == 'WhatsApp' || data.canal == 'Vente directe')
+        && isOptStr(data, 'contact', 100)
+        && isOptNum(data, 'targetBottles')
+        && (data.statut == 'Envisagée' || data.statut == 'Planifiée' || data.statut == 'En cours' || data.statut == 'En attente domaine' || data.statut == 'Clôturée' || data.statut == 'Livrée')
+        && isOptStr(data, 'notes', 600)
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    function isValidExpense(data, wsId, docId) {
+      return data.keys().hasAll([
+          'id', 'workspaceId', 'date', 'category', 'label', 'amountHT', 'tvaRatePct',
+          'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'workspaceId', 'date', 'category', 'label', 'supplier', 'amountHT',
+          'tvaRatePct', 'notes', 'createdByUid', 'createdAt', 'updatedAt'
+        ])
+        && data.id == docId
+        && data.workspaceId == wsId
+        && data.date is string && data.date.size() <= 40
+        && (data.category == 'stockage' || data.category == 'transport' || data.category == 'emballage' || data.category == 'commissions' || data.category == 'degustation' || data.category == 'autre')
+        && data.label is string && data.label.size() >= 1 && data.label.size() <= 200
+        && isOptStr(data, 'supplier', 160)
+        && data.amountHT is number && data.amountHT >= 0
+        && data.tvaRatePct is number && data.tvaRatePct >= 0 && data.tvaRatePct <= 100
+        && isOptStr(data, 'notes', 500)
+        && data.createdByUid is string && data.createdByUid.size() <= 128
+        && data.createdAt is string && data.createdAt.size() <= 40
+        && data.updatedAt is string && data.updatedAt.size() <= 40;
+    }
+
+    // --- Workspace Root & Subcollections ---
+    match /workspaces/{workspaceId} {
+      allow get: if isValidId(workspaceId) && isWorkspaceMember(workspaceId);
+      allow list: if false;
+      allow create: if isValidId(workspaceId)
+        && isBootstrappedAdmin()
+        && isValidWorkspace(incoming())
+        && incoming().ownerUid == request.auth.uid;
+      allow update: if isValidId(workspaceId)
+        && isValidWorkspace(incoming())
+        && isWorkspaceAdmin(workspaceId)
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']);
+      allow delete: if false;
+
+      match /members/{memberId} {
+        allow get: if isValidId(workspaceId) && isValidId(memberId) && (
+          (isVerified() && request.auth.uid == memberId) ||
+          isWorkspaceMember(workspaceId)
+        );
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(memberId)
+          && isValidMember(incoming(), workspaceId, memberId)
+          && (
+            (isBootstrappedAdmin() && memberId == request.auth.uid && incoming().role == 'admin') ||
+            isWorkspaceAdmin(workspaceId) ||
+            (
+              isVerified()
+              && memberId == request.auth.uid
+              && incoming().email.lower() == userEmailLower()
+              && exists(/databases/$(database)/documents/workspaces/$(workspaceId)/invites/$(userEmailLower()))
+              && incoming().role == get(/databases/$(database)/documents/workspaces/$(workspaceId)/invites/$(userEmailLower())).data.role
+            )
+          );
+        allow update: if isValidId(workspaceId) && isValidId(memberId)
+          && isValidMember(incoming(), workspaceId, memberId)
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && (
+            (isWorkspaceAdmin(workspaceId) && incoming().diff(existing()).affectedKeys().hasOnly(['role', 'displayName', 'updatedAt'])) ||
+            (isVerified() && request.auth.uid == memberId && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt']))
+          );
+        allow delete: if isValidId(workspaceId) && isValidId(memberId)
+          && isWorkspaceAdmin(workspaceId)
+          && memberId != request.auth.uid;
+      }
+
+      match /invites/{inviteId} {
+        allow get: if isValidId(workspaceId) && isValidEmailKey(inviteId) && isVerified() && (
+          isWorkspaceAdmin(workspaceId) ||
+          userEmailLower() == inviteId
+        );
+        allow list: if isWorkspaceAdmin(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidEmailKey(inviteId)
+          && isWorkspaceAdmin(workspaceId)
+          && isValidInvite(incoming(), workspaceId)
+          && incoming().invitedByUid == request.auth.uid
+          && incoming().email == inviteId;
+        allow update: if false;
+        allow delete: if isValidId(workspaceId) && isValidEmailKey(inviteId) && (
+          isWorkspaceAdmin(workspaceId) ||
+          (isVerified() && userEmailLower() == inviteId)
+        );
+      }
+
+      match /settings/{settingId} {
+        allow get: if isValidId(workspaceId) && isValidId(settingId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(settingId)
+          && isWorkspaceMember(workspaceId)
+          && isValidSettings(incoming(), workspaceId);
+        allow update: if isValidId(workspaceId) && isValidId(settingId)
+          && isValidSettings(incoming(), workspaceId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if false;
+      }
+
+      match /domains/{domainId} {
+        allow get: if isValidId(workspaceId) && isValidId(domainId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(domainId)
+          && isWorkspaceMember(workspaceId)
+          && isValidDomain(incoming(), workspaceId, domainId);
+        allow update: if isValidId(workspaceId) && isValidId(domainId)
+          && isValidDomain(incoming(), workspaceId, domainId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if isValidId(workspaceId) && isValidId(domainId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /catalog/{catalogId} {
+        allow get: if isValidId(workspaceId) && isValidId(catalogId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(catalogId)
+          && isWorkspaceMember(workspaceId)
+          && isValidCatalog(incoming(), workspaceId, catalogId);
+        allow update: if isValidId(workspaceId) && isValidId(catalogId)
+          && isValidCatalog(incoming(), workspaceId, catalogId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if isValidId(workspaceId) && isValidId(catalogId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /lots/{lotId} {
+        allow get: if isValidId(workspaceId) && isValidId(lotId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(lotId)
+          && isWorkspaceMember(workspaceId)
+          && isValidLot(incoming(), workspaceId, lotId);
+        allow update: if isValidId(workspaceId) && isValidId(lotId)
+          && isValidLot(incoming(), workspaceId, lotId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if isValidId(workspaceId) && isValidId(lotId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /stockAdjustments/{adjId} {
+        allow get: if isValidId(workspaceId) && isValidId(adjId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(adjId)
+          && isWorkspaceMember(workspaceId)
+          && isValidStockAdjustment(incoming(), workspaceId, adjId)
+          && incoming().createdByUid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isValidId(workspaceId) && isValidId(adjId) && isWorkspaceAdmin(workspaceId);
+      }
+
+      match /customers/{customerId} {
+        allow get: if isValidId(workspaceId) && isValidId(customerId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(customerId)
+          && isWorkspaceMember(workspaceId)
+          && isValidCustomer(incoming(), workspaceId, customerId);
+        allow update: if isValidId(workspaceId) && isValidId(customerId)
+          && isValidCustomer(incoming(), workspaceId, customerId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if isValidId(workspaceId) && isValidId(customerId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /orders/{orderId} {
+        allow get: if isValidId(workspaceId) && isValidId(orderId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(orderId)
+          && isWorkspaceMember(workspaceId)
+          && isValidOrder(incoming(), workspaceId, orderId);
+        allow update: if isValidId(workspaceId) && isValidId(orderId)
+          && isValidOrder(incoming(), workspaceId, orderId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && (
+            !('locked' in existing()) || existing().locked != true ||
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'statut', 'qteRemise', 'paymentStatus', 'paymentMethod', 'amountPaidTTC',
+              'paidAt', 'deliveryMode', 'carrier', 'trackingNumber', 'deliveryAddress',
+              'creditNoteId', 'creditNoteNumber', 'notes', 'updatedAt'
+            ])
+          );
+        allow delete: if isValidId(workspaceId) && isValidId(orderId)
+          && isWorkspaceMember(workspaceId)
+          && (!('locked' in existing()) || existing().locked != true);
+      }
+
+      match /invoices/{invoiceId} {
+        allow get: if isValidId(workspaceId) && isValidId(invoiceId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(invoiceId)
+          && isWorkspaceMember(workspaceId)
+          && isValidFiscalDocument(incoming(), workspaceId, invoiceId)
+          && incoming().createdByUid == request.auth.uid;
+        allow update: if isValidId(workspaceId) && isValidId(invoiceId)
+          && isValidFiscalDocument(incoming(), workspaceId, invoiceId)
+          && isWorkspaceMember(workspaceId)
+          && existing().docType == 'facture'
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().createdByUid == existing().createdByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'paymentStatus', 'paymentMethod', 'paidAt', 'creditNoteId', 'creditNoteNumber'
+          ]);
+        allow delete: if false;
+      }
+
+      match /purchaseOrders/{poId} {
+        allow get: if isValidId(workspaceId) && isValidId(poId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(poId)
+          && isWorkspaceMember(workspaceId)
+          && isValidPurchaseOrder(incoming(), workspaceId, poId)
+          && incoming().createdByUid == request.auth.uid;
+        allow update: if isValidId(workspaceId) && isValidId(poId)
+          && isValidPurchaseOrder(incoming(), workspaceId, poId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().createdByUid == existing().createdByUid
+          && incoming().createdAt == existing().createdAt
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'statut', 'expectedDeliveryDate', 'notes', 'updatedAt'
+          ]);
+        allow delete: if isValidId(workspaceId) && isValidId(poId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /campaigns/{campaignId} {
+        allow get: if isValidId(workspaceId) && isValidId(campaignId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(campaignId)
+          && isWorkspaceMember(workspaceId)
+          && isValidCampaign(incoming(), workspaceId, campaignId);
+        allow update: if isValidId(workspaceId) && isValidId(campaignId)
+          && isValidCampaign(incoming(), workspaceId, campaignId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId;
+        allow delete: if isValidId(workspaceId) && isValidId(campaignId) && isWorkspaceMember(workspaceId);
+      }
+
+      match /expenses/{expenseId} {
+        allow get: if isValidId(workspaceId) && isValidId(expenseId) && isWorkspaceMember(workspaceId);
+        allow list: if isWorkspaceMember(workspaceId) && existing().workspaceId == workspaceId;
+        allow create: if isValidId(workspaceId) && isValidId(expenseId)
+          && isWorkspaceMember(workspaceId)
+          && isValidExpense(incoming(), workspaceId, expenseId)
+          && incoming().createdByUid == request.auth.uid;
+        allow update: if isValidId(workspaceId) && isValidId(expenseId)
+          && isValidExpense(incoming(), workspaceId, expenseId)
+          && isWorkspaceMember(workspaceId)
+          && incoming().id == existing().id
+          && incoming().workspaceId == existing().workspaceId
+          && incoming().createdByUid == existing().createdByUid
+          && incoming().createdAt == existing().createdAt;
+        allow delete: if isValidId(workspaceId) && isValidId(expenseId) && isWorkspaceMember(workspaceId);
+      }
+    }
+  }
+}
