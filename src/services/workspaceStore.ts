@@ -37,6 +37,11 @@ import { DEFAULT_SETTINGS } from '../data/seedData';
 
 export const WORKSPACE_ID = 'lbg-main';
 export const BOOTSTRAPPED_ADMIN_EMAIL = 'locollinet@gmail.com';
+export const BOOTSTRAPPED_ADMIN_EMAILS: readonly string[] = [
+  'locollinet@gmail.com',
+  'romain.becker@live.fr',
+  'thos.pierre@gmail.com',
+];
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -101,7 +106,7 @@ export async function ensureWorkspaceAccess(
   user: User
 ): Promise<WorkspaceAccessResult> {
   const emailLower = (user.email ?? '').trim().toLowerCase();
-  const displayName = (user.displayName ?? emailLower.split('@')[0] ?? 'Membre').slice(0, 120);
+  const displayName = (user.displayName?.trim() || emailLower.split('@')[0] || 'Membre').slice(0, 120);
   const memberRef = wsDoc('members', user.uid);
 
   // 1. Déjà membre ?
@@ -126,8 +131,8 @@ export async function ensureWorkspaceAccess(
     handleFirestoreError(err, OperationType.GET, `workspaces/${WORKSPACE_ID}/members/${user.uid}`);
   }
 
-  // 2. Admin initial (bootstrapped) ?
-  if (emailLower === BOOTSTRAPPED_ADMIN_EMAIL) {
+  // 2. Admin pré-autorisé (bootstrapped) ?
+  if (BOOTSTRAPPED_ADMIN_EMAILS.includes(emailLower)) {
     const ts = nowIso();
     let isNewWorkspace = false;
 

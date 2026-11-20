@@ -4,7 +4,17 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  createUserWithEmailAndPassword,
+  onAuthStateChanged,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+  type User,
+} from 'firebase/auth';
 import {
   AlertTriangle,
   BarChart3,
@@ -209,15 +219,48 @@ const NAV_GROUPS: {
 
 const ALL_NAV_ITEMS = NAV_GROUPS.flatMap((g) => g.items);
 
+const formatFirebaseAuthError = (err: unknown): string => {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code?: unknown }).code ?? '')
+      : '';
+  switch (code) {
+    case 'auth/operation-not-allowed':
+      return 'La connexion par e-mail n’est pas encore activée dans la console Firebase (Authentication → Méthodes de connexion → Adresse e-mail / Mot de passe).';
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'E-mail ou mot de passe incorrect. Si c’est votre première connexion par e-mail, cliquez sur l’onglet « Première connexion ».';
+    case 'auth/email-already-in-use':
+      return 'Un compte existe déjà pour cette adresse e-mail. Cliquez sur « J’ai déjà un mot de passe » ou utilisez « Mot de passe oublié ? ».';
+    case 'auth/weak-password':
+      return 'Le mot de passe doit contenir au moins 6 caractères.';
+    case 'auth/invalid-email':
+      return 'Adresse e-mail invalide.';
+    case 'auth/too-many-requests':
+      return 'Trop de tentatives. Patientez quelques instants avant de réessayer.';
+    case 'auth/popup-closed-by-user':
+    case 'auth/popup-blocked':
+      return 'La fenêtre Google a été fermée ou bloquée par le navigateur. Ouvrez l’application sur son lien direct ou connectez-vous par e-mail ci-dessous.';
+    case 'auth/network-request-failed':
+      return 'Connexion réseau impossible. Vérifiez votre accès Internet puis réessayez.';
+    default:
+      return err instanceof Error
+        ? err.message
+        : 'Impossible de finaliser la connexion.';
+  }
+};
+
 export default function App() {
   // --- Auth & Workspace Access ---
   const [authReady, setAuthReady] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [accessState, setAccessState] = useState<
-    'idle' | 'checking' | 'authorized' | 'unauthorized'
+    'idle' | 'checking' | 'verify_email' | 'authorized' | 'unauthorized'
   >('idle');
   const [currentMember, setCurrentMember] = useState<WorkspaceMember | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [initialLoadDone, setInitialLoadDone] = useState(false);
   const [userSkippedSeed, setUserSkippedSeed] = useState(false);
   const [seedingBusy, setSeedingBusy] = useState(false);
@@ -263,6 +306,33 @@ export default function App() {
     void testFirestoreConnection();
   }, []);
 
+  const loadWorkspaceAccess = async (user: User) => {
+    if (!user.emailVerified) {
+      setCurrentMember(null);
+      setAccessState('verify_email');
+      return;
+    }
+
+    setAccessState('checking');
+    try {
+      const res = await ensureWorkspaceAccess(user);
+      if (res.status === 'authorized') {
+        setCurrentMember(res.member);
+        setAccessState('authorized');
+      } else {
+        setCurrentMember(null);
+        setAccessState('unauthorized');
+      }
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : 'Erreur de vérification d’accès à la base Firebase.';
+      setAuthError(msg);
+      setAccessState('idle');
+    }
+  };
+
   // Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -277,24 +347,7 @@ export default function App() {
         return;
       }
 
-      setAccessState('checking');
-      try {
-        const res = await ensureWorkspaceAccess(user);
-        if (res.status === 'authorized') {
-          setCurrentMember(res.member);
-          setAccessState('authorized');
-        } else {
-          setCurrentMember(null);
-          setAccessState('unauthorized');
-        }
-      } catch (err) {
-        const msg =
-          err instanceof Error
-            ? err.message
-            : 'Erreur de vérification d’accès à la base Firebase.';
-        setAuthError(msg);
-        setAccessState('idle');
-      }
+      await loadWorkspaceAccess(user);
     });
     return () => unsub();
   }, []);
@@ -428,18 +481,108 @@ export default function App() {
   // --- Auth Handlers ---
   const handleSignIn = async () => {
     setAuthError(null);
+    setAuthNotice(null);
     try {
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : 'Impossible d’ouvrir la connexion Google.';
-      setAuthError(msg);
+      setAuthError(formatFirebaseAuthError(err));
+    }
+  };
+
+  const handleEmailSignIn = async (email: string, password: string) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      if (!cred.user.emailVerified) {
+        try {
+          await sendEmailVerification(cred.user);
+          setAuthNotice(
+            `Un lien de confirmation vient d’être envoyé à ${email}. Cliquez dessus dans votre boîte mail (vérifiez les spams), puis cliquez sur le bouton ci-dessous.`
+          );
+        } catch {
+          // If Firebase rate-limits duplicate verification emails, the user can still use the resend button.
+        }
+      }
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    }
+  };
+
+  const handleEmailSignUp = async (
+    email: string,
+    password: string,
+    displayName: string
+  ) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      if (displayName.trim()) {
+        await updateProfile(cred.user, { displayName: displayName.trim() });
+      }
+      await sendEmailVerification(cred.user);
+      setAuthNotice(
+        `Un lien de confirmation vient d’être envoyé à ${email}. Cliquez dessus puis validez ci-dessous.`
+      );
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    }
+  };
+
+  const handlePasswordReset = async (email: string) => {
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setAuthNotice(
+        `Un lien de réinitialisation du mot de passe a été envoyé à ${email} (vérifiez vos courriers indésirables).`
+      );
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    }
+  };
+
+  const handleResendVerification = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      await sendEmailVerification(user);
+      setAuthNotice(
+        `E-mail de confirmation renvoyé à ${user.email ?? 'votre adresse'}. Pensez à vérifier vos courriers indésirables.`
+      );
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
+    }
+  };
+
+  const handleCheckEmailVerified = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+    setAuthError(null);
+    setAuthNotice(null);
+    try {
+      await user.reload();
+      await user.getIdToken(true);
+      const refreshed = auth.currentUser;
+      if (!refreshed?.emailVerified) {
+        setAuthError(
+          'Votre adresse e-mail n’apparaît pas encore comme validée. Cliquez sur le lien reçu dans votre boîte mail (et vérifiez vos spams), puis réessayez.'
+        );
+        return;
+      }
+      setFirebaseUser(refreshed);
+      await loadWorkspaceAccess(refreshed);
+    } catch (err) {
+      setAuthError(formatFirebaseAuthError(err));
     }
   };
 
   const handleSignOut = async () => {
+    setAuthError(null);
+    setAuthNotice(null);
     await signOut(auth);
   };
 
@@ -1198,7 +1341,26 @@ export default function App() {
       <AuthGate
         mode="login"
         authError={authError}
+        authNotice={authNotice}
         onSignIn={handleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onEmailSignUp={handleEmailSignUp}
+        onPasswordReset={handlePasswordReset}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  if (accessState === 'verify_email') {
+    return (
+      <AuthGate
+        mode="verify_email"
+        userEmail={firebaseUser.email ?? undefined}
+        authError={authError}
+        authNotice={authNotice}
+        onSignIn={handleSignIn}
+        onCheckEmailVerified={handleCheckEmailVerified}
+        onResendVerification={handleResendVerification}
         onSignOut={handleSignOut}
       />
     );
