@@ -31,6 +31,7 @@ import {
   formatPct,
   getOrderLineUnpaidTTC,
 } from '../utils/wineMath';
+import { PLANNING_PROJECTS } from '../data/seedData';
 
 interface DashboardViewProps {
   catalog: WineCatalogItem[];
@@ -519,6 +520,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </tbody>
           </table>
         </div>
+
+        {PLANNING_PROJECTS.length > 0 && (
+          <div className="px-5 py-3.5 border-t border-[#E5E4DF] bg-[#FAF9F7]/60">
+            <div className="text-[11px] font-medium uppercase tracking-wide text-[#6B6A65] mb-2">
+              Projets à l’étude
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {PLANNING_PROJECTS.map((project) => (
+                <span
+                  key={project}
+                  className="px-2.5 py-0.5 text-xs bg-white border border-[#E5E4DF] rounded-md text-[#3D3D3A]"
+                >
+                  {project}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Edit / Add Campaign Modal */}

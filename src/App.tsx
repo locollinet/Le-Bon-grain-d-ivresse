@@ -131,7 +131,7 @@ const LEGACY_STORAGE_KEYS = {
   catalog: 'lbg_catalog_v3',
   lots: 'lbg_lots_v3',
   orders: 'lbg_orders_v3',
-  campaigns: 'lbg_campaigns_v3',
+  campaigns: 'lbg_campaigns_v4',
   settings: 'lbg_settings_v3',
 };
 
